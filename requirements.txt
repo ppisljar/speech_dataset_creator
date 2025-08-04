@@ -1,0 +1,4 @@
+clearvoice
+pyannote.audio>=3.3
+aiohttp
+bs4

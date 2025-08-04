@@ -1,0 +1,524 @@
+#!/usr/bin/env python3
+"""
+Build a transcript and per-speaker clips from a Soniox-like JSON (tokens) and an input audio (.mp3 or .wav).
+
+Outputs:
+- out/transcript.txt                 (one sentence per line: `speaker <id>: <text>`)
+- out/speakers/<spk>/clipN.wav       (WAV audio for each segment)
+- out/speakers/<spk>/clipN.txt       (text for the segment)
+
+Segmentation rules:
+- Segments are single-speaker, 1–25 seconds.
+- Prefer to end at sentence boundaries (., !, ?), else comma, else longest silence by token gap.
+- Use global audio **silence detection** once for the whole file and reuse results.
+- While splitting at a sentence end or comma, locate the **longest silence** in the token gap
+  (current token end → next token start). If a silence with ≥100 ms duration exists in this gap,
+  set end boundary to (silence_start + 50 ms) and the next start to (silence_end - 50 ms),
+  ensuring both segments have silence at their edges.
+- For each segment, verify:
+  - Start has ≥20 ms silence; if not, pad +50 ms at start when exporting.
+  - End has ≥50 ms silence; if not, pad +50 ms at end when exporting (unless boundary shifted by the gap rule).
+
+Confidence filename prefixes based on the **minimum** token confidence in the segment:
+- < 0.5  → "___"
+- < 0.8  → "__"
+- < 0.9  → "_"
+- ≥ 0.9 → "" (no prefix)
+
+Usage:
+  python make_segments.py tokens.json input.(mp3|wav)
+
+Requirements:
+  - ffmpeg on PATH
+"""
+
+import argparse
+import json
+import re
+import subprocess
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import List, Tuple, Optional
+
+# ----------------------------
+# Tunables_PUNT 
+# ----------------------------
+MIN_SEG_SEC = 1.0
+MAX_SEG_SEC = 25.0
+SENT_PUNCT = {".", "!", "?"}
+COMMA = ","
+
+# Global silence detection
+SILENCE_DB = -35                 # dB threshold for silence detection
+MIN_SILENCE_SEC = 0.02           # 20 ms; we detect once for full file
+
+# Boundary guarantees
+REQUIRED_SIL_START_MS = 20       # must have ≥20 ms silence at beginning
+REQUIRED_SIL_END_MS = 50         # must have ≥50 ms silence at end
+GAP_SPLIT_MIN_MS = 100           # if using a gap silence, require ≥100 ms duration
+EDGE_OFFSET_MS = 50              # use ±50 ms inside that gap silence for boundaries
+
+# Optional export settings
+EXPORT_RATE = 16000              # set to None to keep original
+
+# ----------------------------
+# Structures
+# ----------------------------
+@dataclass
+class Token:
+    text: str
+    start_ms: int
+    end_ms: int
+    confidence: float
+    speaker: str
+
+@dataclass
+class Sentence:
+    speaker: str
+    text: str
+    start_ms: int
+    end_ms: int
+
+@dataclass
+class Segment:
+    speaker: str
+    text: str
+    start_ms: int
+    end_ms: int
+    min_conf: float
+    pad_start_ms: int = 0
+    pad_end_ms: int = 0
+
+# ----------------------------
+# Token utilities
+# ----------------------------
+_space_before_punct = re.compile(r"\s+([,.;:!?])")
+_multi_space = re.compile(r"[ \t]+")
+
+def load_tokens(json_path: Path) -> List[Token]:
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    toks: List[Token] = []
+    for t in data.get("tokens", []):
+        if t.get("text") is None or t.get("is_audio_event"):
+            continue
+        toks.append(
+            Token(
+                text=str(t["text"]),
+                start_ms=int(t["start_ms"]),
+                end_ms=int(t["end_ms"]),
+                confidence=float(t.get("confidence", 1.0)),
+                speaker=str(t.get("speaker") or ""),
+            )
+        )
+    toks.sort(key=lambda x: (x.start_ms, x.end_ms))
+    return toks
+
+def detokenize_text(tokens: List[Token]) -> str:
+    raw = "".join(t.text for t in tokens)
+    # Remove spaces before punctuation by using a function (avoids backrefs in editor replacements)
+    s = _space_before_punct.sub(lambda m: m.group(1), raw)
+    s = _multi_space.sub(" ", s).strip()
+    return s
+
+def token_has_sentence_end(tok: Token) -> bool:
+    return any(p in tok.text for p in SENT_PUNCT)
+
+def token_has_comma(tok: Token) -> bool:
+    return COMMA in tok.text
+
+# ----------------------------
+# ffmpeg helpers
+# ----------------------------
+RE_SILENCE_START = re.compile(r"silence_start:\s*([0-9.]+)")
+RE_SILENCE_END = re.compile(r"silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)")
+
+Sil = Tuple[int, int, int]  # start_ms, end_ms, dur_ms
+
+
+def detect_silences_full(audio: Path, noise_db: int = SILENCE_DB, min_sil_sec: float = MIN_SILENCE_SEC) -> List[Sil]:
+    """Run a single global silencedetect over the entire file."""
+    cmd = [
+        "ffmpeg", "-hide_banner", "-nostats",
+        "-i", str(audio),
+        "-af", f"silencedetect=noise={noise_db}dB:d={min_sil_sec}",
+        "-f", "null", "-",
+    ]
+    cp = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    sils: List[Sil] = []
+    cur: Optional[float] = None
+    for line in cp.stderr.splitlines():
+        m1 = RE_SILENCE_START.search(line)
+        if m1:
+            cur = float(m1.group(1))
+            continue
+        m2 = RE_SILENCE_END.search(line)
+        if m2 and cur is not None:
+            end = float(m2.group(1))
+            dur = float(m2.group(2))
+            sils.append((int(round(cur * 1000)), int(round(end * 1000)), int(round(dur * 1000))))
+            cur = None
+    return sils
+
+
+def silences_overlapping(silences: List[Sil], start_ms: int, end_ms: int) -> List[Sil]:
+    out = []
+    for s, e, d in silences:
+        if s < end_ms and e > start_ms:  # overlap
+            out.append((max(s, start_ms), min(e, end_ms), min(d, end_ms - start_ms)))
+    return out
+
+
+def silence_covering_point(silences: List[Sil], t_ms: int, require_ms: int) -> bool:
+    for s, e, d in silences:
+        if s <= t_ms <= e and (e - s) >= require_ms:
+            return True
+    return False
+
+
+def longest_silence_in_range(silences: List[Sil], start_ms: int, end_ms: int) -> Optional[Sil]:
+    best: Optional[Sil] = None
+    for s, e, d in silences_overlapping(silences, start_ms, end_ms):
+        dur = min(e, end_ms) - max(s, start_ms)
+        cand = (max(s, start_ms), min(e, end_ms), dur)
+        if dur <= 0:
+            continue
+        if best is None or cand[2] > best[2]:
+            best = cand
+    return best
+
+
+def ffmpeg_extract(in_path: Path, start_ms: int, end_ms: int, out_wav: Path, pad_start_ms: int = 0, pad_end_ms: int = 0) -> None:
+    """Extract [start_ms, end_ms) to a WAV file; optionally pad start/end with silence."""
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+    ss = f"{start_ms/1000:.3f}"
+    to = f"{end_ms/1000:.3f}"
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-ss", ss, "-to", to, "-i", str(in_path),
+        "-vn", "-c:a", "pcm_s16le",
+    ]
+    if EXPORT_RATE:
+        cmd += ["-ar", str(EXPORT_RATE)]
+    filters = []
+    if pad_start_ms > 0:
+        filters.append(f"adelay={pad_start_ms}|{pad_start_ms}")
+    if pad_end_ms > 0:
+        filters.append(f"apad=pad_dur={pad_end_ms/1000:.3f}")
+    if filters:
+        cmd += ["-af", ",".join(filters)]
+    cmd.append(str(out_wav))
+    subprocess.run(cmd, check=True)
+
+# ----------------------------
+# Sentence building
+# ----------------------------
+
+def build_sentences(tokens: List[Token]) -> List[Sentence]:
+    sentences: List[Sentence] = []
+    if not tokens:
+        return sentences
+
+    cur_speaker = tokens[0].speaker
+    cur_tokens: List[Token] = []
+
+    def flush():
+        nonlocal cur_tokens
+        if not cur_tokens:
+            return
+        text = detokenize_text(cur_tokens)
+        if text:
+            sentences.append(
+                Sentence(
+                    speaker=cur_speaker,
+                    text=text,
+                    start_ms=cur_tokens[0].start_ms,
+                    end_ms=cur_tokens[-1].end_ms,
+                )
+            )
+        cur_tokens = []
+
+    for i, tok in enumerate(tokens):
+        if cur_tokens and tok.speaker != cur_speaker:
+            flush()
+            cur_speaker = tok.speaker
+        cur_tokens.append(tok)
+        if token_has_sentence_end(tok):
+            flush()
+            if i + 1 < len(tokens):
+                cur_speaker = tokens[i + 1].speaker
+    flush()
+    return sentences
+
+# ----------------------------
+# Segmentation using tokens + global silences
+# ----------------------------
+
+def build_segments_single_speaker(run: List[Token], silences: List[Sil]) -> List[Segment]:
+    segs: List[Segment] = []
+    if not run:
+        return segs
+
+    i = 0
+    while i < len(run):
+        # Grow candidate window up to MAX_SEG_SEC
+        j = i
+        while j < len(run):
+            dur = (run[j].end_ms - run[i].start_ms) / 1000.0
+            if dur > MAX_SEG_SEC:
+                break
+            j += 1
+            if j > i:
+                last = run[j - 1]
+                if dur >= MIN_SEG_SEC and token_has_sentence_end(last):
+                    # only split at sentence punctuation
+                    break
+
+        if j == i:
+            j = min(i + 1, len(run))
+
+        candidate = run[i:j]
+        # Default boundary from tokens
+        end_idx = len(candidate) - 1
+        end_tok = candidate[end_idx]
+        next_tok = run[j] if j < len(run) else None
+
+        # If splitting on punctuation and there is a next token, align boundary using gap silence
+        if next_tok is not None and token_has_sentence_end(end_tok):
+            gap_start = end_tok.end_ms
+            gap_end = next_tok.start_ms
+            if gap_end > gap_start:
+                best = longest_silence_in_range(silences, gap_start, gap_end)
+                if best and best[2] >= GAP_SPLIT_MIN_MS:
+                    s_ms, e_ms, _ = best
+                    end_boundary = s_ms + EDGE_OFFSET_MS
+                    next_start = max(end_boundary + 1, e_ms - EDGE_OFFSET_MS)  # ensure increasing
+                    # enforce monotonicity and limits
+                    if next_start <= next_tok.start_ms:
+                        candidate_end_ms = end_boundary
+                        candidate_start_ms = candidate[0].start_ms
+                        if (candidate_end_ms - candidate_start_ms) / 1000.0 >= MIN_SEG_SEC:
+                            end_tok_end_ms = candidate[-1].end_ms
+                            custom_end_ms = min(candidate_end_ms, end_tok_end_ms)
+                            seg_tokens = candidate
+                            text = detokenize_text(seg_tokens)
+                            seg_min_conf = min(t.confidence for t in seg_tokens)
+                            seg = Segment(
+                                speaker=seg_tokens[0].speaker,
+                                text=text,
+                                start_ms=seg_tokens[0].start_ms,
+                                end_ms=custom_end_ms,
+                                min_conf=seg_min_conf,
+                            )
+                            segs.append(seg)
+                            setattr(next_tok, "_start_override_ms", next_start)
+                            i = j
+                            continue
+
+        # Otherwise, we didn't align via gap silence; choose end by sentence end -> longest token gap -> hard bound
+        cut_idx = None
+        for k in range(len(candidate) - 1, -1, -1):
+            if token_has_sentence_end(candidate[k]):
+                cut_idx = k
+                break
+        if cut_idx is None:
+            # longest token gap inside candidate
+            if len(candidate) >= 2:
+                best_gap = -1
+                best_k = 0
+                for k in range(len(candidate) - 1):
+                    gap = candidate[k + 1].start_ms - candidate[k].end_ms
+                    if gap > best_gap:
+                        best_gap = gap
+                        best_k = k
+                cut_idx = best_k
+            else:
+                cut_idx = 0
+
+        seg_tokens = candidate[: cut_idx + 1]
+        text = detokenize_text(seg_tokens)
+        seg = Segment(
+            speaker=seg_tokens[0].speaker,
+            text=text,
+            start_ms=getattr(seg_tokens[0], "_start_override_ms", seg_tokens[0].start_ms),
+            end_ms=seg_tokens[-1].end_ms,
+            min_conf=min(t.confidence for t in seg_tokens),
+        )
+
+        # Boundary silence guarantees using precomputed silences
+        if not silence_covering_point(silences, seg.start_ms, REQUIRED_SIL_START_MS):
+            seg.pad_start_ms = EDGE_OFFSET_MS
+        if not silence_covering_point(silences, seg.end_ms, REQUIRED_SIL_END_MS):
+            seg.pad_end_ms = max(seg.pad_end_ms, EDGE_OFFSET_MS)
+
+        segs.append(seg)
+        i = i + cut_idx + 1
+
+    # Enforce max length by subdividing recursively if needed
+    final: List[Segment] = []
+    for s in segs:
+        dur = (s.end_ms - s.start_ms) / 1000.0
+        if dur <= MAX_SEG_SEC:
+            final.append(s)
+        else:
+            mid = s.start_ms + int((MAX_SEG_SEC * 1000))
+            left = Segment(s.speaker, s.text, s.start_ms, mid, s.min_conf, s.pad_start_ms, EDGE_OFFSET_MS)
+            right = Segment(s.speaker, s.text, mid, s.end_ms, s.min_conf, EDGE_OFFSET_MS, s.pad_end_ms)
+            final.extend([left, right])
+    return final
+
+
+def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
+    segments: List[Segment] = []
+    if not tokens:
+        return segments
+    # Group runs by speaker
+    run: List[Token] = [tokens[0]]
+    for t in tokens[1:]:
+        if t.speaker == run[-1].speaker:
+            run.append(t)
+        else:
+            segments.extend(build_segments_single_speaker(run, silences))
+            run = [t]
+    segments.extend(build_segments_single_speaker(run, silences))
+    # Now, for each segment, split by comma into subsegments
+    output_segments = []  # list of dicts: {main: Segment, subs: [Segment, ...]}
+    for seg in segments:
+        seg_tokens = [tok for tok in tokens if tok.speaker == seg.speaker and seg.start_ms <= tok.start_ms and tok.end_ms <= seg.end_ms]
+        if not seg_tokens:
+            output_segments.append({'main': seg, 'subs': []})
+            continue
+        current = []
+        starts = []
+        ends = []
+        subsegments = []
+        for tok in seg_tokens:
+            if not current:
+                starts.append(tok.start_ms)
+            current.append(tok)
+            if token_has_comma(tok):
+                ends.append(tok.end_ms)
+                subseg_tokens = current[:]
+                text = detokenize_text(subseg_tokens)
+                min_conf = min(t.confidence for t in subseg_tokens)
+                s_start = starts[-1]
+                s_end = ends[-1]
+                if s_end > s_start:
+                    subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
+                current = []
+        # Add any remaining tokens as last subsegment
+        if current:
+            s_start = starts[-1]
+            s_end = current[-1].end_ms
+            subseg_tokens = current[:]
+            text = detokenize_text(subseg_tokens)
+            min_conf = min(t.confidence for t in subseg_tokens)
+            if s_end > s_start:
+                subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
+        output_segments.append({'main': seg, 'subs': subsegments})
+    return output_segments
+
+# ----------------------------
+# Confidence prefix
+# ----------------------------
+
+def confidence_prefix(min_conf: float) -> str:
+    if min_conf < 0.5:
+        return "___"
+    if min_conf < 0.8:
+        return "__"
+    if min_conf < 0.9:
+        return "_"
+    return ""
+
+# ----------------------------
+# Main
+# ----------------------------
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=(
+            "Produce sentence transcript and per-speaker segments from JSON tokens and an MP3/WAV file, "
+            "using one-pass silence detection and aligning boundaries to silence."
+        )
+    )
+    ap.add_argument("json_path", type=Path, help="Path to JSON file with tokens")
+    ap.add_argument("audio_path", type=Path, help="Path to input audio (.mp3 or .wav)")
+    ap.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory (default: out/)")
+    ap.add_argument("--silence-db", type=int, default=SILENCE_DB, help="Silence threshold in dB (default: -35)")
+    ap.add_argument("--min-sil", type=float, default=MIN_SILENCE_SEC, help="Min silence (sec) for detector (default: 0.02)")
+    ap.add_argument("--min-seg", type=float, default=MIN_SEG_SEC, help="Minimum segment length in seconds (default: 1.0)")
+    ap.add_argument("--max-seg", type=float, default=MAX_SEG_SEC, help="Maximum segment length in seconds (default: 25.0)")
+    ap.add_argument("--rate", type=int, default=EXPORT_RATE, help="Export WAV sample rate or 0 to keep original (default: 16000)")
+    args = ap.parse_args()
+
+    # global SILENCE_DB, MIN_SILENCE_SEC, MIN_SEG_SEC, MAX_SEG_SEC, EXPORT_RATE
+    # SILENCE_DB = args.silence_db
+    # MIN_SILENCE_SEC = args.min_sil
+    # MIN_SEG_SEC = args.min_seg
+    # MAX_SEG_SEC = args.max_seg
+    # EXPORT_RATE = args.rate if args.rate and args.rate > 0 else None
+
+    if not args.json_path.exists():
+        raise SystemExit(f"JSON not found: {args.json_path}")
+    if not args.audio_path.exists():
+        raise SystemExit(f"Audio not found: {args.audio_path}")
+
+    tokens = load_tokens(args.json_path)
+
+    outdir = args.outdir
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # 1) Transcript
+    sentences = build_sentences(tokens)
+    transcript_path = outdir / "transcript.txt"
+    with transcript_path.open("w", encoding="utf-8") as f:
+        for s in sentences:
+            f.write(f"speaker {s.speaker}: {s.text}\n")
+    print(f"[ok] Wrote {transcript_path}")
+
+    print("detecting silences ...")
+    # 2) One-pass silence detection over full audio
+    silences = detect_silences_full(args.audio_path, SILENCE_DB, MIN_SILENCE_SEC)
+
+    # 3) Segments (with inline boundary checks/adjustments)
+    print("building segments")
+    segments = build_segments(tokens, silences)
+
+    # 4) Export per-speaker
+    print("exporting segments and subsegments")
+    counters = {}
+    for seg_idx, segdict in enumerate(segments, 1):
+        main_seg = segdict['main']
+        sub_segs = segdict['subs']
+        spk_dir = outdir / "speakers" / str(main_seg.speaker)
+        spk_dir.mkdir(parents=True, exist_ok=True)
+        counters.setdefault(main_seg.speaker, 0)
+        counters[main_seg.speaker] += 1
+
+        # Write main segment as clipxx
+        prefix = confidence_prefix(main_seg.min_conf)
+        base = f"clip{seg_idx:02d}{prefix}"
+        wav_path = spk_dir / f"{base}.wav"
+        txt_path = spk_dir / f"{base}.txt"
+        ffmpeg_extract(args.audio_path, main_seg.start_ms, main_seg.end_ms, wav_path, main_seg.pad_start_ms, main_seg.pad_end_ms)
+        txt_path.write_text(main_seg.text + "\n", encoding="utf-8")
+
+        # Write subsegments as clipxx_yy, but only if more than 1 subsegment and subsegment != main segment
+        if len(sub_segs) > 1:
+            for sub_idx, subseg in enumerate(sub_segs, 1):
+                # skip subsegment if it is identical to main segment
+                if (subseg.start_ms == main_seg.start_ms and subseg.end_ms == main_seg.end_ms):
+                    continue
+                sub_prefix = confidence_prefix(subseg.min_conf)
+                sub_base = f"clip{seg_idx:02d}_{sub_idx:02d}{sub_prefix}"
+                sub_wav_path = spk_dir / f"{sub_base}.wav"
+                sub_txt_path = spk_dir / f"{sub_base}.txt"
+                ffmpeg_extract(args.audio_path, subseg.start_ms, subseg.end_ms, sub_wav_path, subseg.pad_start_ms, subseg.pad_end_ms)
+                sub_txt_path.write_text(subseg.text + "\n", encoding="utf-8")
+
+    total = sum(counters.values())
+    print(f"[ok] Wrote {total} main segments across {len(counters)} speaker(s) under {outdir/'speakers'}")
+
+
+if __name__ == "__main__":
+    main()
