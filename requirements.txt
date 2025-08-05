@@ -2,3 +2,6 @@ clearvoice
 pyannote.audio>=3.3
 aiohttp
 bs4
+flask
+flask-cors
+werkzeug

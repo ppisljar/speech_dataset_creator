@@ -3,3 +3,5 @@
 venv/
 aidea/
 out/
+.env
+__pycache__

@@ -2,14 +2,12 @@ import os
 import subprocess
 import asyncio
 import aiohttp
+import sys
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
-# Create the 'aidea' folder if it doesn't exist
-os.makedirs('./aidea', exist_ok=True)
-
 # Base URL for the podcast site
-BASE_URL = 'https://podcasti.si/aidea/?page={page_num}'
+BASE_URL = 'https://podcasti.si/{podcast}/?page={page_num}'
 
 # Function to fetch the HTML content of the page
 async def fetch_page(session, url):
@@ -49,11 +47,14 @@ def download_mp3(url, file_name):
         print(f"Error downloading {url}: {e}")
 
 # Main function to scrape and download MP3s from all pages
-async def main():
+async def get_podcasts(base_url, output_dir='./aidea', max_pages=10):
+    # Create the 'aidea' folder if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
     async with aiohttp.ClientSession() as session:
         # Loop through pages 1 to 10
-        for page_num in range(1, 11):
-            page_url = BASE_URL.format(page_num=page_num)
+        for page_num in range(1, max_pages + 1):
+            page_url = BASE_URL.format(podcast=base_url, page_num=page_num)
             print(f"Fetching page {page_num}...")
             page_html = await fetch_page(session, page_url)
             mp3_urls = extract_mp3_links(page_html)
@@ -62,9 +63,19 @@ async def main():
             for mp3_url in mp3_urls:
                 # Get sanitized filename (without query parameters)
                 mp3_name = get_filename_from_url(mp3_url)
-                mp3_path = os.path.join('./aidea', mp3_name)
+                mp3_path = os.path.join(output_dir, mp3_name)
                 download_mp3(mp3_url, mp3_path)
 
 # Run the main function
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Check if podcast name is provided as command line argument
+    if len(sys.argv) != 2:
+        print("Usage: python m0_get.py <podcast_name>")
+        print("Example: python m0_get.py aidea")
+        sys.exit(1)
+    
+    podcast_name = sys.argv[1]
+    output_dir = f'./{podcast_name}'
+    
+    print(f"Downloading podcasts from '{podcast_name}' to '{output_dir}' directory...")
+    asyncio.run(get_podcasts(podcast_name, output_dir))
