@@ -3,12 +3,25 @@ import os
 import sys
 import subprocess
 import pandas as pd
-from pyannote.audio import Pipeline
+import numpy as np
+import uuid
+from pyannote.audio import Pipeline, Model
+from pyannote.core import Segment
 import argparse
 
 HF_TOKEN = os.environ.get("HF_TOKEN")  # or set to string, e.g., "hf_abc..."
 
-def pyannote(input_file, output_file, min_speakers=None, max_speakers=None):
+def load_db(path="speaker_db.npy"):
+    return np.load(path, allow_pickle=True).item() if os.path.exists(path) else {}
+
+def save_db(db, path="speaker_db.npy"):
+    np.save(path, db)
+
+def cosine_similarity(vec1, vec2):
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
+
+def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, speaker_db=None, speaker_threshold=0.75):
     """
     Perform speaker diarization on an audio file using pyannote.audio
     
@@ -17,6 +30,8 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None):
         output_file (str): Base path for output files (will create .rttm and .csv)
         min_speakers (int, optional): Minimum number of speakers
         max_speakers (int, optional): Maximum number of speakers
+        speaker_db (dict, optional): Existing speaker database for reference
+        speaker_threshold (float, optional): Similarity threshold for speaker matching
     
     Returns:
         dict: Dictionary containing diarization results with speaker segments
@@ -43,6 +58,14 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None):
         use_auth_token=HF_TOKEN,
     )
 
+    # Load embedding model
+    speakers = {}
+    embedder = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
+    if speaker_db is not None:
+        speakers = load_db(speaker_db)
+
+    waveform, sample_rate = embedder.audio.from_file(input_file)
+
     # Prepare pipeline arguments for min/max speakers
     pipeline_kwargs = {}
     if min_speakers is not None:
@@ -61,13 +84,35 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None):
     # --- Also save a simple CSV for inspection ---
     rows = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
+        # Get speaker embedding
+        embedding = embedder({'waveform': waveform, 'sample_rate': sample_rate}, segments=[turn])[0].numpy()
+        
+        # Try to match to known speakers
+        best_name = None
+        best_score = -1
+        for name, ref_vector in speakers.items():
+            sim = cosine_similarity(embedding, ref_vector)
+            if sim > speaker_threshold and sim > best_score:
+                best_name = name
+                best_score = sim
+
+        if best_name:
+            speaker_name = best_name
+        else:
+            speaker_name = f"spk_{str(uuid.uuid4())[:8]}"
+            speakers[speaker_name] = embedding  # Add new speaker
+
         rows.append({
-            "speaker": speaker,
+            "speaker": speaker_name,
             "start": round(turn.start, 3),
             "end": round(turn.end, 3),
             "duration": round(turn.duration, 3),
         })
     
+
+    if speaker_db is not None:
+        save_db(speakers, speaker_db)
+
     csv_file = f"{output_file}.csv"
     pd.DataFrame(rows).sort_values(["start","end"]).to_csv(csv_file, index=False)
 

@@ -3,5 +3,13 @@
 venv/
 aidea/
 out/
+output/
+checkpoints/
+raw/
 .env
 __pycache__
+.DS_Store
+output.json
+silences.json
+test.mp3_cleaned_audio_01.wav_silences.json
+.vscode/tasks.json

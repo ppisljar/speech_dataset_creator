@@ -11,3 +11,14 @@
 - split into 1-25s segments (single speaker) and save with transcription
 -- trim silence
 - phonetize and phoneme alig ()
+
+
+
+web:
+!- detect shorter silences
+!- allow to configure the project (silence length, treshold)
+!- pyannote across multiple files
+- align segments with pyannote/silences
+- add export button which: builds the segments, constructs metadata
+- add clean button (which deletes everythuing but final artifacts)
+- add download button which downloads zip

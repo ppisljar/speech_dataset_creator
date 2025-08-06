@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, send_file
+from flask import Flask, Response, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
 import os
 import json
@@ -105,6 +105,8 @@ def create_project():
     try:
         data = request.get_json()
         project_name = data.get('name')
+        settings = data.get('settings', {})
+        
         if not project_name:
             return jsonify({'error': 'Project name is required'}), 400
         
@@ -119,16 +121,24 @@ def create_project():
         for subdir in ['splits', 'audio', 'raw']:
             os.makedirs(os.path.join(project_path, subdir), exist_ok=True)
         
+        # Save settings if provided
+        if settings:
+            settings_path = os.path.join(project_path, 'settings.json')
+            with open(settings_path, 'w') as f:
+                json.dump(settings, f, indent=2)
+        
         return jsonify({'message': f'Project {project_name} created successfully'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/projects/<project_name>', methods=['PUT'])
 def rename_project(project_name):
-    """Rename a project folder"""
+    """Rename a project folder and update settings"""
     try:
         data = request.get_json()
         new_name = data.get('name')
+        settings = data.get('settings')
+        
         if not new_name:
             return jsonify({'error': 'New project name is required'}), 400
         
@@ -139,11 +149,21 @@ def rename_project(project_name):
         if not os.path.exists(old_path):
             return jsonify({'error': 'Project not found'}), 404
         
-        if os.path.exists(new_path):
+        if new_name != project_name and os.path.exists(new_path):
             return jsonify({'error': 'Project with new name already exists'}), 409
         
-        os.rename(old_path, new_path)
-        return jsonify({'message': f'Project renamed from {project_name} to {new_name}'}), 200
+        # Update settings if provided
+        if settings:
+            settings_path = os.path.join(old_path, 'settings.json')
+            with open(settings_path, 'w') as f:
+                json.dump(settings, f, indent=2)
+        
+        # Rename project folder if name changed
+        if new_name != project_name:
+            os.rename(old_path, new_path)
+            return jsonify({'message': f'Project renamed from {project_name} to {new_name}'}), 200
+        else:
+            return jsonify({'message': f'Project {project_name} updated successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -166,12 +186,17 @@ def delete_project(project_name):
 def get_files(project_name, filetype):
     """List files in a project's filetype directory"""
     try:
+        if filetype == "split": 
+            filetype = "splits"
         files_path = os.path.join(PROJECTS_DIR, project_name, filetype)
         files = []
+        
         if os.path.exists(files_path):
             for item in os.listdir(files_path):
                 file_path = os.path.join(files_path, item)
-                if os.path.isfile(file_path):
+                if filetype != 'splits' and os.path.isfile(file_path):
+                    files.append(item)
+                elif filetype == 'splits' and not os.path.isfile(file_path):
                     files.append(item)
         return jsonify(files)
     except Exception as e:
@@ -253,6 +278,49 @@ def delete_file(project_name, filetype, filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Project settings endpoints
+@app.route('/api/projects/<project_name>/settings', methods=['GET'])
+def get_project_settings(project_name):
+    """Get project settings from settings.json"""
+    try:
+        settings_path = os.path.join(PROJECTS_DIR, project_name, 'settings.json')
+        
+        if not os.path.exists(settings_path):
+            # Return default settings if file doesn't exist
+            default_settings = {
+                'silenceThreshold': -40,
+                'minSilenceLength': 500
+            }
+            return jsonify(default_settings)
+        
+        with open(settings_path, 'r') as f:
+            settings = json.load(f)
+        
+        return jsonify(settings)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/projects/<project_name>/settings', methods=['PUT'])
+def save_project_settings(project_name):
+    """Save project settings to settings.json"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Settings data is required'}), 400
+        
+        project_path = os.path.join(PROJECTS_DIR, project_name)
+        if not os.path.exists(project_path):
+            return jsonify({'error': 'Project not found'}), 404
+        
+        settings_path = os.path.join(project_path, 'settings.json')
+        
+        with open(settings_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        return jsonify({'message': 'Settings saved successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Splits endpoint
 @app.route('/api/projects/<project_name>/splits/<filename>', methods=['GET'])
 def get_splits(project_name, filename):
@@ -323,6 +391,56 @@ def get_all_processing_status():
     """Get all processing statuses"""
     return jsonify(processing_status)
 
+@app.route('/api/projects/<project_name>/splits/<splitnam>/<filename>', methods=['GET', 'PUT'])
+def get_split_file(project_name, splitnam, filename):
+    """Get or update a specific split file"""
+    try:
+        split_file_path = os.path.join(PROJECTS_DIR, project_name, 'splits', splitnam, filename)
+        
+        if request.method == 'GET':
+            if not os.path.exists(split_file_path):
+                return jsonify({'error': 'Split file not found'}), 404
+            
+            # if filetype is json return as json
+            if filename.endswith('.json'):
+                with open(split_file_path, 'r') as f:
+                    data = json.load(f)
+                return jsonify(data)
+            # if filetype is csv return as csv
+            elif filename.endswith('.csv'):
+                with open(split_file_path, 'r') as f:
+                    data = f.read()
+                return Response(data, mimetype='text/csv')
+            
+            return send_file(split_file_path, mimetype='application/octet-stream')
+        
+        elif request.method == 'PUT':
+            # Handle updating files (mainly for JSON files like segments)
+            if not filename.endswith('.json'):
+                return jsonify({'error': 'Only JSON files can be updated via PUT'}), 400
+            
+            try:
+                data = request.get_json()
+                if data is None:
+                    return jsonify({'error': 'Invalid JSON data'}), 400
+                
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(split_file_path), exist_ok=True)
+                
+                # Write the updated data to the file
+                with open(split_file_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                return jsonify({'message': f'File {filename} updated successfully'}), 200
+                
+            except json.JSONDecodeError:
+                return jsonify({'error': 'Invalid JSON format'}), 400
+            except Exception as e:
+                return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+                
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # JSON data endpoints
 @app.route('/api/projects/<project_name>/silences/<filename>', methods=['GET'])
 def get_silences(project_name, filename):
@@ -387,6 +505,20 @@ def get_segments(project_name, filename):
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/projects/<project_name>/audio/<filename>', methods=['GET'])
+def get_audio(project_name, filename):
+    """Return audio.wav for a file"""
+    try:
+        audio_path = os.path.join(PROJECTS_DIR, project_name, 'audio', filename)
+        
+        if not os.path.exists(audio_path):
+            return jsonify({'error': 'Audio file not found'}), 404
+        
+        return send_file(audio_path, mimetype='audio/wav')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

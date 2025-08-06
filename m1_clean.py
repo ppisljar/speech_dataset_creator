@@ -1,4 +1,3 @@
-
 import os
 from clearvoice import ClearVoice
 # use clearvoice mossformer2 to clean up audio (remove background noise, echo, reverb, etc.)\\\
@@ -13,5 +12,15 @@ def clean_audio(input_path, output_path):
     :param input_path: Path to the input audio file.
     :param output_path: Path to save the cleaned audio file.
     """
+    # Ensure the output directory exists
+    output_dir = os.path.dirname(output_path)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
     output_wav = myClearVoice(input_path=input_path, online_write=False)
-    myClearVoice.write(output_wav, output_path=output_path)
+    print(f"Cleaned audio saved to {output_path}")
+    # remove file if it exists
+    if os.path.exists(output_path):
+        os.remove(output_path)
+
+    myClearVoice.write(output_wav, output_path=str(output_path))

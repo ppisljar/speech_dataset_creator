@@ -40,7 +40,7 @@ def find_silences(audio_file, min_silence_len=1000, silence_thresh=-30):
     
     return silences
 
-def find_silences_in_file(audio_file, output_file, min_silence_len=1000, silence_thresh=-30):
+def find_silences_in_file(audio_file, output_file, min_silence_len=100, silence_thresh=-30):
     """
     Find silences in an audio file and save the results to a JSON file.
     

@@ -5,3 +5,4 @@ bs4
 flask
 flask-cors
 werkzeug
+dotenv
