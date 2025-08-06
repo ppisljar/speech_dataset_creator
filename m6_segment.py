@@ -450,14 +450,21 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     :param min_seg_sec: Minimum segment length in seconds.
     :param max_seg_sec: Maximum segment length in seconds.
     """
+    pyannote_csv_path = Path(json_path.replace('_transcription.json', '_pyannote.csv'))
+    silences_json_path = Path(json_path.replace('_transcription.json', '_silences.json'))
+
     audio_path = Path(audio_path)
     json_path = Path(json_path)
     
     tokens = load_tokens(json_path)
 
     print("detecting silences ...")
-    # One-pass silence detection over full audio
-    silences = detect_silences_full(audio_path, silence_db, min_silence_sec)
+    # load silences from JSON
+    if silences_json_path.exists():
+        silences = json.loads(silences_json_path.read_text(encoding='utf-8'))
+        silences = [(s[0], s[1], s[1] - s[0]) for s in silences]
+    else:
+        silences = detect_silences_full(audio_path, silence_db, min_silence_sec)
 
     # Segments (with inline boundary checks/adjustments)
     print("building segments")
@@ -523,9 +530,11 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
     :param export_rate: Export sample rate for WAV files.
     """
     # Load segments from JSON
+    
     segments_json_path = Path(segments_json_path)
     audio_path = Path(audio_path)
     outdir = Path(outdir)
+    
     
     with segments_json_path.open('r', encoding='utf-8') as f:
         data = json.load(f)
