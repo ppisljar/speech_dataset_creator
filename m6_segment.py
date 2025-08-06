@@ -392,7 +392,11 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
     for seg in segments:
         seg_tokens = [tok for tok in tokens if tok.speaker == seg.speaker and seg.start_ms <= tok.start_ms and tok.end_ms <= seg.end_ms]
         if not seg_tokens:
-            output_segments.append({'main': seg, 'subs': []})
+            if len(seg.text) > 1:
+                output_segments.append({'main': seg, 'subs': []})
+            else:
+                # add this to previous segment as its a single char
+                output_segments[-1]['main'].text += seg.text
             continue
         current = []
         starts = []
@@ -421,7 +425,11 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
             min_conf = min(t.confidence for t in subseg_tokens)
             if s_end > s_start:
                 subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
-        output_segments.append({'main': seg, 'subs': subsegments})
+        if len(seg.text) > 1:
+            output_segments.append({'main': seg, 'subs': subsegments})
+        else:
+            # add this to previous segment as its a single char
+            output_segments[-1]['main'].text += seg.text
     return output_segments
 
 # ----------------------------
