@@ -2,6 +2,7 @@ import os
 import time
 import json
 import requests
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,4 +90,13 @@ def transcribe_file(input_file, output_file="output.json"):
  
  
 if __name__ == "__main__":
-    transcribe_file(file_to_transcribe, output_file="output.json")
+    if len(sys.argv) < 2:
+        print("Usage: python m4_transcribe_file.py <input_file> [output_file]")
+        print("  input_file: Path to the audio file to transcribe")
+        print("  output_file: Optional output JSON file path (default: output.json)")
+        sys.exit(1)
+    
+    input_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else "output.json"
+    
+    transcribe_file(input_file, output_file)
