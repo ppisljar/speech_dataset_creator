@@ -2,6 +2,8 @@
 
 A comprehensive pipeline for processing podcast audio files to create high-quality speech datasets for text-to-speech (TTS) training. This tool automates the entire process from raw audio to segmented, transcribed, and phonetically aligned speech data.
 
+PS: this is fully AI generated, not a single line of code was written manually
+
 ## Features
 
 - **Audio Enhancement**: Remove background noise, echo, and reverb using ClearVoice MossFormer2
