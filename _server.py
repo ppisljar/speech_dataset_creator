@@ -24,7 +24,7 @@ processing_status = {}
 # Ensure projects directory exists
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 
-def process_file_background(project_name, filename, file_path):
+def process_file_background(project_name, filename, file_path, override=False, segment=False):
     """Background function to process a file through the pipeline"""
     process_key = f"{project_name}_{filename}"
     
@@ -46,7 +46,7 @@ def process_file_background(project_name, filename, file_path):
         processing_status[process_key]['message'] = 'Cleaning audio...'
         
         # Call the custom processing function
-        success = process_file(file_path, file_path.replace('/raw', '/splits') + '/')
+        success = process_file(file_path, file_path.replace('/raw', '/splits') + '/', override, segment)
         
         if success:
             processing_status[process_key] = {
@@ -360,6 +360,38 @@ def refresh_split_file(project_name, filename):
         thread = threading.Thread(
             target=process_file_background,
             args=(project_name, filename, raw_file_path)
+        )
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'message': f'Processing started for {filename}',
+            'processing_key': process_key
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/projects/<project_name>/splits/<filename>/build', methods=['POST'])
+def build_split_file(project_name, filename):
+    """Build splits"""
+    try:
+        # Look for the file in the raw directory
+        raw_file_path = os.path.join(PROJECTS_DIR, project_name, 'raw', f"{filename}")
+        if not os.path.exists(raw_file_path):
+            # Try with .wav extension
+            raw_file_path = os.path.join(PROJECTS_DIR, project_name, 'raw', f"{filename}.wav")
+            if not os.path.exists(raw_file_path):
+                return jsonify({'error': 'Source file not found in raw directory'}), 404
+
+        # Check if already processing
+        process_key = f"{project_name}_{filename}"
+        if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
+            return jsonify({'error': 'File is already being processed'}), 409
+
+        # Start background processing
+        thread = threading.Thread(
+            target=process_file_background,
+            args=(project_name, filename, raw_file_path, False, True)
         )
         thread.daemon = True
         thread.start()

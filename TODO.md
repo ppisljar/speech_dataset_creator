@@ -17,8 +17,13 @@
 web:
 !- detect shorter silences
 !- allow to configure the project (silence length, treshold)
-!- pyannote across multiple files
-- align segments with pyannote/silences
+!- align segments with pyannote/silences
 - add export button which: builds the segments, constructs metadata
 - add clean button (which deletes everythuing but final artifacts)
 - add download button which downloads zip
+
+
+next round:
+- improve alignment
+- handle overlapping speach
+- fix pyannote across multiple files

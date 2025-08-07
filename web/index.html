@@ -1685,9 +1685,10 @@
                 const statusColor = segment.status === 'good' ? 'green' : 'red';
                 const confidenceColor = segment.confidence > 0.6 ? 'green' : 'orange';
                 
+                // Main segment row
                 html += `
                     <tr id="segment-row-${index}" style="background-color: ${segment.status === 'good' ? '#f0fff0' : '#fff0f0'};">
-                        <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">${segment.seg_idx || index + 1}</td>
+                        <td style="border: 1px solid #ddd; padding: 4px; text-align: center; font-weight: bold;">${segment.seg_idx || index + 1}</td>
                         <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">
                             <select onchange="updateSegmentStatus(${index}, this.value)" style="color: ${statusColor};">
                                 <option value="good" ${segment.status === 'good' ? 'selected' : ''}>Good</option>
@@ -1724,14 +1725,44 @@
                         </td>
                     </tr>
                 `;
+
+                // Add subsegments if they exist
+                if (segment.subs && Array.isArray(segment.subs) && segment.subs.length > 0) {
+                    segment.subs.forEach((subsegment, subIndex) => {
+                        const subStartMs = Math.round(subsegment.start * 1000);
+                        const subEndMs = Math.round(subsegment.end * 1000);
+                        const subDuration = subEndMs - subStartMs;
+                        const subConfidenceColor = subsegment.confidence > 0.6 ? 'green' : 'orange';
+                        
+                        html += `
+                            <tr style="background-color: #f8f8f8; border-left: 4px solid #ccc;">
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 10px; color: #666;">${segment.seg_idx || index + 1}.${subIndex + 1}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">-</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555;">${subsegment.speaker || ''}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555;">${subsegment.text || ''}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555; text-align: center;">${subStartMs}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555; text-align: center;">${subEndMs}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 11px; color: #555;">${subDuration}ms</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center; color: ${subConfidenceColor}; font-size: 11px;">
+                                    ${(subsegment.confidence * 100).toFixed(1)}%
+                                </td>
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">
+                                    <button onclick="playSubsegment(${index}, ${subIndex})" style="margin: 1px; padding: 2px 6px; font-size: 10px;">▶</button>
+                                    <button onclick="seekToSubsegment(${index}, ${subIndex})" style="margin: 1px; padding: 2px 6px; font-size: 10px;">↗</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
             });
 
             html += `
                     </tbody>
                 </table>
                 <div style="margin: 10px 0; font-size: 12px; color: #666;">
-                    <p><strong>Legend:</strong> ▶ = Play segment, ↗ = Seek to segment, ✖ = Delete segment</p>
+                    <p><strong>Legend:</strong> ▶ = Play segment/subsegment, ↗ = Seek to segment/subsegment, ✖ = Delete segment</p>
                     <p><strong>Status:</strong> Good segments will be included in final dataset, Bad segments will be excluded</p>
+                    <p><strong>Types:</strong> Segment = Main segment, Sub = Subsegment (part of main segment)</p>
                 </div>
             `;
 
@@ -1816,6 +1847,50 @@
             drawWaveform();
             
             showMessage(`Seeked to segment ${segment.seg_idx || index + 1}`);
+        }
+
+        function playSubsegment(segmentIndex, subsegmentIndex) {
+            const segment = waveformData.segments[segmentIndex];
+            const subsegment = segment.subs[subsegmentIndex];
+            
+            // Stop current playback
+            if (isPlaying) {
+                stopAudio();
+            }
+            
+            // Seek to subsegment start and play
+            seekToTime(subsegment.start);
+            
+            // Start playback
+            setTimeout(() => {
+                playAudio();
+                
+                // Stop playback at subsegment end
+                const subsegmentDuration = (subsegment.end - subsegment.start) * 1000; // Convert to ms
+                setTimeout(() => {
+                    if (isPlaying) {
+                        pauseAudio();
+                    }
+                }, subsegmentDuration);
+            }, 100); // Small delay to ensure seek completes
+            
+            showMessage(`Playing subsegment ${segment.seg_idx || segmentIndex + 1}.${subsegmentIndex + 1}: "${subsegment.text}"`);
+        }
+
+        function seekToSubsegment(segmentIndex, subsegmentIndex) {
+            const segment = waveformData.segments[segmentIndex];
+            const subsegment = segment.subs[subsegmentIndex];
+            seekToTime(subsegment.start);
+            
+            // Center the subsegment in view
+            const viewDuration = (waveformData.canvasWidth * waveformData.zoom) / 1000;
+            const subsegmentMiddle = (subsegment.start + subsegment.end) / 2;
+            waveformData.viewStart = Math.max(0, subsegmentMiddle - viewDuration / 2);
+            
+            updateTimeDisplay();
+            drawWaveform();
+            
+            showMessage(`Seeked to subsegment ${segment.seg_idx || segmentIndex + 1}.${subsegmentIndex + 1}`);
         }
 
         function deleteSegment(index) {

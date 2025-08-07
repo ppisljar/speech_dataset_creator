@@ -440,7 +440,8 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
             min_conf = min(t.confidence for t in subseg_tokens)
             if s_end > s_start:
                 subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
-        # Merge subsegments with no gaps between them
+        # Note: Silence alignment will happen after pyannote refinement
+        # Just merge subsegments with no gaps for now
         merged_subsegments = merge_subsegments_with_no_gaps(subsegments)
         
         if len(seg.text) > 1:
@@ -449,6 +450,106 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
             # add this to previous segment as its a single char
             output_segments[-1]['main'].text += seg.text
     return output_segments
+
+
+def find_silence_for_subsegment_start(silences: List[Sil], segment_start_ms: int) -> Optional[int]:
+    """
+    Find the appropriate silence boundary for subsegment start.
+    Returns the end of the last silence that ended before segment start,
+    or the end of silence that started before and ended after segment start, minus 20ms.
+    """
+    best_silence_end = None
+    
+    for s_start, s_end, s_dur in silences:
+        # Case 1: Silence ended before segment start
+        if s_end <= segment_start_ms:
+            if best_silence_end is None or s_end > best_silence_end:
+                best_silence_end = s_end
+        # Case 2: Silence started before segment start and ended after
+        elif s_start <= segment_start_ms <= s_end:
+            best_silence_end = s_end
+            break  # This takes priority
+    
+    if best_silence_end is not None:
+        return max(0, best_silence_end - 20)  # Subtract 20ms, but don't go negative
+    
+    return None
+
+
+def find_silence_for_subsegment_end(silences: List[Sil], segment_end_ms: int) -> Optional[int]:
+    """
+    Find the appropriate silence boundary for subsegment end.
+    Returns the end of silence that starts immediately after segment end,
+    or silence that starts before segment end and ends after, plus 20ms.
+    """
+    best_silence_end = None
+    
+    for s_start, s_end, s_dur in silences:
+        # Case 1: Silence starts immediately after or at segment end
+        if s_start >= segment_end_ms:
+            best_silence_end = s_start
+            break  # Take the first one we find
+        # Case 2: Silence starts before segment end but ends after
+        elif s_start <= segment_end_ms <= s_end:
+            best_silence_end = s_start
+            break  # This takes priority
+    
+    if best_silence_end is not None:
+        return best_silence_end + 20  # Add 20ms
+    
+    return None
+
+
+def align_subsegments_with_silences(subsegments: List[Segment], silences: List[Sil]) -> List[Segment]:
+    """
+    Align subsegments with silence boundaries according to the specified rules.
+    """
+    if not subsegments:
+        return subsegments
+    
+    aligned_subsegments = []
+    
+    for i, subseg in enumerate(subsegments):
+        # Find aligned start boundary
+        aligned_start = find_silence_for_subsegment_start(silences, subseg.start_ms)
+        if aligned_start is not None:
+            print(f"Aligning start of subsegment {i} from {subseg.start_ms} to {aligned_start} ms")
+            new_start_ms = aligned_start
+        else:
+            new_start_ms = subseg.start_ms
+        
+        # Find aligned end boundary
+        aligned_end = find_silence_for_subsegment_end(silences, subseg.end_ms)
+        if aligned_end is not None:
+            print(f"Aligning end of subsegment {i} from {subseg.end_ms} to {aligned_end} ms")
+            new_end_ms = aligned_end
+        else:
+            new_end_ms = subseg.end_ms
+        
+        # Ensure start comes before end
+        if new_end_ms <= new_start_ms:
+            print(f"Warning: Adjusting end time for subsegment {i} from {new_end_ms} to {new_start_ms + 100} ms")
+            new_end_ms = new_start_ms + 100  # Minimum 100ms duration
+        
+        # Ensure subsegments don't overlap with previous one
+        # if i > 0 and new_start_ms < aligned_subsegments[-1].end_ms:
+        #     new_start_ms = aligned_subsegments[-1].end_ms
+        #     if new_end_ms <= new_start_ms:
+        #         new_end_ms = new_start_ms + 100
+        
+        aligned_subseg = Segment(
+            speaker=subseg.speaker,
+            text=subseg.text,
+            start_ms=new_start_ms,
+            end_ms=new_end_ms,
+            min_conf=subseg.min_conf,
+            pad_start_ms=subseg.pad_start_ms,
+            pad_end_ms=subseg.pad_end_ms
+        )
+        
+        aligned_subsegments.append(aligned_subseg)
+    
+    return aligned_subsegments
 
 
 def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
@@ -460,7 +561,7 @@ def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
     """
     if len(subsegments) <= 1:
         return subsegments
-    
+        
     merged = []
     current_segment = subsegments[0]
     
@@ -471,7 +572,7 @@ def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
         # Allow for small overlaps or very small gaps (up to 10ms)
         gap_ms = next_segment.start_ms - current_segment.end_ms
         
-        if gap_ms <= 10:  # No gap or very small gap/overlap
+        if gap_ms <= 5:  # No gap or very small gap/overlap
             # Merge the segments
             merged_text = current_segment.text.rstrip() + " " + next_segment.text.lstrip()
             merged_min_conf = min(current_segment.min_conf, next_segment.min_conf)
@@ -553,6 +654,9 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
         print("refining segments with pyannote data...")
         segments = refine_segments_with_pyannote(segments, pyannote_entries, silences)
         print("segment refinement complete")
+
+    for s in segments:
+        s['subs'] = align_subsegments_with_silences(s['subs'], silences)
 
     # Convert segments to serializable format
     serializable_segments = []
