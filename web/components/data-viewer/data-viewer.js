@@ -254,15 +254,8 @@ class DataViewer {
         document.getElementById('annotationsCanvas').width = this.waveformData.canvasWidth;
         document.getElementById('annotationsCanvas').height = 480;
         
-        // Initialize timeline slider
-        const slider = document.getElementById('timelineSlider');
-        slider.addEventListener('input', () => {
-            const progress = parseFloat(slider.value) / 100;
-            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
-            this.waveformData.viewStart = progress * Math.max(0, this.waveformData.duration - viewDuration);
-            this.drawWaveform();
-            this.updateTimeDisplay();
-        });
+        // Initialize timeline scrollbar
+        this.initializeTimelineScrollbar();
         
         // Add canvas click handler for seeking
         canvas.addEventListener('click', (e) => {
@@ -277,6 +270,32 @@ class DataViewer {
                 podcastManager.showMessage(`Seeked to time: ${this.formatTime(newTime)}`);
             }
         });
+        
+        // Add mouse wheel handler for horizontal scrolling
+        const waveformContainer = document.getElementById('waveformContainer');
+        waveformContainer.addEventListener('wheel', (e) => {
+            // Prevent default vertical scrolling
+            e.preventDefault();
+            
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const scrollDirection = e.deltaY > 0 ? 1 : -1;
+            
+            // Scale scroll sensitivity based on zoom level
+            // At high zoom (small values), scroll less; at low zoom (large values), scroll more
+            const scrollSensitivity = this.waveformData.zoom / 1000; // Convert ms to seconds
+            const scrollAmount = scrollDirection * scrollSensitivity * 2; // Multiply by 2 for reasonable speed
+            
+            const newViewStart = Math.max(0, Math.min(
+                this.waveformData.viewStart + scrollAmount,
+                this.waveformData.duration - viewDuration
+            ));
+            
+            if (newViewStart !== this.waveformData.viewStart) {
+                this.waveformData.viewStart = newViewStart;
+                this.drawWaveform();
+                this.updateTimeDisplay();
+            }
+        }, { passive: false });
         
         // Add mouse move handler for hover indicator
         canvas.addEventListener('mousemove', (e) => {
@@ -300,6 +319,102 @@ class DataViewer {
         
         this.updateTimeDisplay();
         this.setZoom(this.waveformData.zoom);
+    }
+
+    initializeTimelineScrollbar() {
+        const scrollbarContainer = document.getElementById('timelineScrollbar');
+        const thumb = document.getElementById('timelineThumb');
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartViewStart = 0;
+
+        // Helper function to update thumb position and size
+        const updateThumb = () => {
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const maxViewStart = Math.max(0, this.waveformData.duration - viewDuration);
+            const scrollbarWidth = scrollbarContainer.clientWidth;
+            
+            // Calculate thumb width as percentage of total timeline
+            const thumbWidthPercent = Math.min(1, viewDuration / this.waveformData.duration);
+            const thumbWidth = Math.max(20, scrollbarWidth * thumbWidthPercent); // Minimum 20px
+            
+            // Calculate thumb position
+            const thumbPositionPercent = maxViewStart > 0 ? (this.waveformData.viewStart / maxViewStart) : 0;
+            const thumbPosition = thumbPositionPercent * (scrollbarWidth - thumbWidth);
+            
+            thumb.style.width = thumbWidth + 'px';
+            thumb.style.left = thumbPosition + 'px';
+        };
+
+        // Mouse down on thumb - start dragging
+        thumb.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartViewStart = this.waveformData.viewStart;
+            document.body.style.cursor = 'grabbing';
+        });
+
+        // Mouse down on scrollbar (not thumb) - jump to position
+        scrollbarContainer.addEventListener('mousedown', (e) => {
+            if (e.target === thumb) return; // Don't handle if clicking on thumb
+            
+            const rect = scrollbarContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const scrollbarWidth = scrollbarContainer.clientWidth;
+            const thumbWidth = thumb.clientWidth;
+            
+            // Calculate desired thumb center position
+            const desiredThumbCenter = clickX;
+            const newThumbLeft = Math.max(0, Math.min(scrollbarWidth - thumbWidth, desiredThumbCenter - thumbWidth / 2));
+            
+            // Convert to viewStart
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const maxViewStart = Math.max(0, this.waveformData.duration - viewDuration);
+            const newViewStart = (newThumbLeft / (scrollbarWidth - thumbWidth)) * maxViewStart;
+            
+            this.waveformData.viewStart = Math.max(0, Math.min(newViewStart, maxViewStart));
+            this.drawWaveform();
+            this.updateTimeDisplay();
+        });
+
+        // Global mouse move - handle dragging
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            e.preventDefault();
+            const deltaX = e.clientX - dragStartX;
+            const scrollbarWidth = scrollbarContainer.clientWidth;
+            const thumbWidth = thumb.clientWidth;
+            
+            // Convert pixel movement to time movement
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const maxViewStart = Math.max(0, this.waveformData.duration - viewDuration);
+            const pixelsToTime = maxViewStart / (scrollbarWidth - thumbWidth);
+            const timeDelta = deltaX * pixelsToTime;
+            
+            const newViewStart = Math.max(0, Math.min(dragStartViewStart + timeDelta, maxViewStart));
+            
+            if (newViewStart !== this.waveformData.viewStart) {
+                this.waveformData.viewStart = newViewStart;
+                this.drawWaveform();
+                this.updateTimeDisplay();
+            }
+        });
+
+        // Global mouse up - stop dragging
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                document.body.style.cursor = '';
+            }
+        });
+
+        // Initial thumb update
+        updateThumb();
+        
+        // Store update function for external calls
+        this.updateTimelineThumb = updateThumb;
     }
 
     setZoom(millisecondsPerPixel) {
@@ -581,10 +696,10 @@ class DataViewer {
         document.getElementById('endTime').textContent = this.formatTime(this.waveformData.duration);
         document.getElementById('currentPosition').textContent = this.formatTime(this.waveformData.viewStart + viewDuration / 2);
         
-        // Update slider position
-        const maxViewStart = Math.max(0, this.waveformData.duration - viewDuration);
-        const sliderValue = maxViewStart > 0 ? (this.waveformData.viewStart / maxViewStart) * 100 : 0;
-        document.getElementById('timelineSlider').value = sliderValue;
+        // Update timeline thumb position and size
+        if (this.updateTimelineThumb) {
+            this.updateTimelineThumb();
+        }
     }
 
     formatTime(seconds) {
@@ -600,6 +715,57 @@ class DataViewer {
         
         const elapsed = this.audioContext.currentTime - this.playStartTime;
         return this.audioStartOffset + elapsed;
+    }
+
+    checkSegmentOverlaps(segment, currentIndex) {
+        // Check if this segment overlaps with any other segment
+        for (let i = 0; i < this.waveformData.segments.length; i++) {
+            if (i === currentIndex) continue; // Skip checking against itself
+            
+            const otherSegment = this.waveformData.segments[i];
+            
+            // Check for overlap: segments overlap if one starts before the other ends
+            // and the other starts before the first one ends
+            const segmentStart = segment.start;
+            const segmentEnd = segment.end;
+            const otherStart = otherSegment.start;
+            const otherEnd = otherSegment.end;
+            
+            // Two segments overlap if:
+            // segment.start < other.end AND other.start < segment.end
+            if (segmentStart < otherEnd && otherStart < segmentEnd) {
+                return true; // Found an overlap
+            }
+        }
+        return false; // No overlaps found
+    }
+
+    checkSubsegmentOverlaps(parentSegment, currentSubIndex) {
+        // Check if this subsegment overlaps with any other subsegment within the same segment
+        if (!parentSegment.subs || !Array.isArray(parentSegment.subs)) {
+            return false;
+        }
+        
+        const currentSubsegment = parentSegment.subs[currentSubIndex];
+        
+        for (let i = 0; i < parentSegment.subs.length; i++) {
+            if (i === currentSubIndex) continue; // Skip checking against itself
+            
+            const otherSubsegment = parentSegment.subs[i];
+            
+            // Check for overlap
+            const subStart = currentSubsegment.start;
+            const subEnd = currentSubsegment.end;
+            const otherStart = otherSubsegment.start;
+            const otherEnd = otherSubsegment.end;
+            
+            // Two subsegments overlap if:
+            // subsegment.start < other.end AND other.start < subsegment.end
+            if (subStart < otherEnd && otherStart < subEnd) {
+                return true; // Found an overlap
+            }
+        }
+        return false; // No overlaps found
     }
 
     displaySegmentsTable() {
@@ -627,8 +793,8 @@ class DataViewer {
 
         let html = `
             <h3>Segments (${this.waveformData.segments.length}) Subsegments (${subSegmentCount})</h3>
-            <h5>Main Segment Length: ${mainSegmentLength} s</h5>
-            <h5>Sub Segment Length: ${subSegmentLength} s</h5>
+            <h5>Main Segment Length: ${mainSegmentLength/60} min</h5>
+            <h5>Sub Segment Length: ${subSegmentLength/60} min</h5>
             <div class="segments-actions">
                 <div>
                     <button onclick="dataViewer.saveSegments()">Save Changes</button>
@@ -637,6 +803,44 @@ class DataViewer {
                 </div>
                 <div>
                     <button onclick="buildSplits()" style="background-color: #28a745; color: white;">Build</button>
+                </div>
+            </div>
+            <div class="segments-filters" style="margin: 10px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+                <h4 style="margin: 0 0 10px 0;">Filters</h4>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <div>
+                        <label>Status:</label>
+                        <select id="filterStatus" onchange="dataViewer.applyFilters()">
+                            <option value="">All</option>
+                            <option value="good">Good</option>
+                            <option value="bad">Bad</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Speaker:</label>
+                        <select id="filterSpeaker" onchange="dataViewer.applyFilters()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Text contains:</label>
+                        <input type="text" id="filterText" placeholder="Search text..." onkeyup="dataViewer.applyFilters()" style="width: 150px;">
+                    </div>
+                    <div>
+                        <label>Duration (ms):</label>
+                        <input type="number" id="filterDurationMin" placeholder="Min" onchange="dataViewer.applyFilters()" style="width: 80px;">
+                        <span> - </span>
+                        <input type="number" id="filterDurationMax" placeholder="Max" onchange="dataViewer.applyFilters()" style="width: 80px;">
+                    </div>
+                    <div>
+                        <label>Confidence (%):</label>
+                        <input type="number" id="filterConfidenceMin" placeholder="Min" min="0" max="100" onchange="dataViewer.applyFilters()" style="width: 60px;">
+                        <span> - </span>
+                        <input type="number" id="filterConfidenceMax" placeholder="Max" min="0" max="100" onchange="dataViewer.applyFilters()" style="width: 60px;">
+                    </div>
+                    <div>
+                        <button onclick="dataViewer.clearFilters()" style="background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 3px;">Clear Filters</button>
+                    </div>
                 </div>
             </div>
             <table class="segments-table">
@@ -653,7 +857,7 @@ class DataViewer {
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="segmentsTableBody">
         `;
 
         this.waveformData.segments.forEach((segment, index) => {
@@ -664,6 +868,12 @@ class DataViewer {
             // Determine status based on confidence (default good if > 0.6)
             if (segment.status === undefined) {
                 segment.status = segment.confidence > 0.6 ? 'good' : 'bad';
+                
+                // Check if segment overlaps with any other segment and mark as bad if it does
+                const hasOverlap = this.checkSegmentOverlaps(segment, index);
+                if (hasOverlap) {
+                    segment.status = 'bad';
+                }
             }
             
             const statusColor = segment.status === 'good' ? 'green' : 'red';
@@ -719,6 +929,12 @@ class DataViewer {
                     // Determine status for subsegment
                     if (subsegment.status === undefined) {
                         subsegment.status = subsegment.confidence > 0.6 ? 'good' : 'bad';
+                        
+                        // Check if subsegment overlaps with other subsegments in the same segment
+                        const hasOverlap = this.checkSubsegmentOverlaps(segment, subIndex);
+                        if (hasOverlap) {
+                            subsegment.status = 'bad';
+                        }
                     }
                     
                     const subStatusColor = subsegment.status === 'good' ? 'green' : 'red';
@@ -777,6 +993,218 @@ class DataViewer {
         `;
 
         dataViewer.innerHTML = html;
+        
+        // Populate speaker dropdown with unique speakers
+        this.populateSpeakerFilter();
+        
+        // Render the table content
+        this.renderSegmentsTable();
+    }
+
+    populateSpeakerFilter() {
+        const speakerSelect = document.getElementById('filterSpeaker');
+        if (!speakerSelect) return;
+        
+        // Get unique speakers from segments and subsegments
+        const speakers = new Set();
+        this.waveformData.segments.forEach(segment => {
+            if (segment.speaker) speakers.add(segment.speaker);
+            if (segment.subs) {
+                segment.subs.forEach(sub => {
+                    if (sub.speaker) speakers.add(sub.speaker);
+                });
+            }
+        });
+        
+        // Clear existing options except "All"
+        speakerSelect.innerHTML = '<option value="">All</option>';
+        
+        // Add unique speakers
+        Array.from(speakers).sort().forEach(speaker => {
+            const option = document.createElement('option');
+            option.value = speaker;
+            option.textContent = speaker;
+            speakerSelect.appendChild(option);
+        });
+    }
+
+    renderSegmentsTable() {
+        const tableBody = document.getElementById('segmentsTableBody');
+        if (!tableBody) return;
+        
+        let tableHtml = '';
+        
+        this.waveformData.segments.forEach((segment, index) => {
+            const startMs = Math.round(segment.start * 1000);
+            const endMs = Math.round(segment.end * 1000);
+            const duration = endMs - startMs;
+            
+            // Determine status based on confidence (default good if > 0.6)
+            if (segment.status === undefined) {
+                segment.status = segment.confidence > 0.6 ? 'good' : 'bad';
+                
+                // Check if segment overlaps with any other segment and mark as bad if it does
+                const hasOverlap = this.checkSegmentOverlaps(segment, index);
+                if (hasOverlap) {
+                    segment.status = 'bad';
+                }
+            }
+            
+            // Apply filters
+            if (!this.passesFilters(segment, startMs, endMs, duration)) {
+                return; // Skip this segment if it doesn't pass filters
+            }
+            
+            const statusColor = segment.status === 'good' ? 'green' : 'red';
+            const confidenceColor = segment.confidence > 0.6 ? 'green' : 'orange';
+            const rowClass = segment.status === 'good' ? 'good' : 'bad';
+            
+            // Main segment row
+            tableHtml += `
+                <tr id="segment-row-${index}" class="segment-row ${rowClass}">
+                    <td style="text-align: center; font-weight: bold;">${segment.seg_idx || index + 1}</td>
+                    <td style="text-align: center;">
+                        <select onchange="dataViewer.updateSegmentStatus(${index}, this.value)" class="status-${segment.status}">
+                            <option value="good" ${segment.status === 'good' ? 'selected' : ''}>Good</option>
+                            <option value="bad" ${segment.status === 'bad' ? 'selected' : ''}>Bad</option>
+                        </select>
+                    </td>
+                    <td>
+                        <input type="text" value="${segment.speaker || ''}" 
+                               onchange="dataViewer.updateSegmentField(${index}, 'speaker', this.value)">
+                    </td>
+                    <td>
+                        <textarea onchange="dataViewer.updateSegmentField(${index}, 'text', this.value)">${segment.text || ''}</textarea>
+                    </td>
+                    <td>
+                        <input type="number" value="${startMs}" 
+                               onchange="dataViewer.updateSegmentTime(${index}, 'start', this.value)">
+                    </td>
+                    <td>
+                        <input type="number" value="${endMs}" 
+                               onchange="dataViewer.updateSegmentTime(${index}, 'end', this.value)">
+                    </td>
+                    <td style="text-align: center;">${duration}ms</td>
+                    <td style="text-align: center;" class="confidence-${segment.confidence > 0.6 ? 'good' : 'bad'}">
+                        ${(segment.confidence * 100).toFixed(1)}%
+                    </td>
+                    <td style="text-align: center;">
+                        <div class="action-buttons">
+                            <button onclick="dataViewer.playSegment(${index})" class="play-button">▶</button>
+                            <button onclick="dataViewer.seekToSegment(${index})" class="seek-button">↗</button>
+                            <button onclick="dataViewer.deleteSegment(${index})" class="delete-button">✖</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+
+            // Add subsegments if they exist
+            if (segment.subs && Array.isArray(segment.subs) && segment.subs.length > 1) {
+                segment.subs.forEach((subsegment, subIndex) => {
+                    const subStartMs = Math.round(subsegment.start * 1000);
+                    const subEndMs = Math.round(subsegment.end * 1000);
+                    const subDuration = subEndMs - subStartMs;
+                    
+                    // Determine status for subsegment
+                    if (subsegment.status === undefined) {
+                        subsegment.status = subsegment.confidence > 0.6 ? 'good' : 'bad';
+                        
+                        // Check if subsegment overlaps with other subsegments in the same segment
+                        const hasOverlap = this.checkSubsegmentOverlaps(segment, subIndex);
+                        if (hasOverlap) {
+                            subsegment.status = 'bad';
+                        }
+                    }
+                    
+                    // Apply filters to subsegments
+                    if (!this.passesFilters(subsegment, subStartMs, subEndMs, subDuration)) {
+                        return; // Skip this subsegment if it doesn't pass filters
+                    }
+                    
+                    const subStatusColor = subsegment.status === 'good' ? 'green' : 'red';
+                    const subConfidenceColor = subsegment.confidence > 0.6 ? 'green' : 'orange';
+                    const subRowClass = subsegment.status === 'good' ? 'good' : 'bad';
+                    
+                    tableHtml += `
+                        <tr id="subsegment-row-${index}-${subIndex}" class="subsegment-row ${subRowClass}">
+                            <td style="text-align: center; font-size: 10px; color: #666;">${segment.seg_idx || index + 1}.${subIndex + 1}</td>
+                            <td style="text-align: center;">
+                                <select onchange="dataViewer.updateSubsegmentStatus(${index}, ${subIndex}, this.value)" class="status-${subsegment.status}">
+                                    <option value="good" ${subsegment.status === 'good' ? 'selected' : ''}>Good</option>
+                                    <option value="bad" ${subsegment.status === 'bad' ? 'selected' : ''}>Bad</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" value="${subsegment.speaker || ''}" 
+                                       onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'speaker', this.value)">
+                            </td>
+                            <td>
+                                <textarea onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'text', this.value)">${subsegment.text || ''}</textarea>
+                            </td>
+                            <td>
+                                <input type="number" value="${subStartMs}" 
+                                       onchange="dataViewer.updateSubsegmentTime(${index}, ${subIndex}, 'start', this.value)">
+                            </td>
+                            <td>
+                                <input type="number" value="${subEndMs}" 
+                                       onchange="dataViewer.updateSubsegmentTime(${index}, ${subIndex}, 'end', this.value)">
+                            </td>
+                            <td style="text-align: center; font-size: 11px; color: #555;">${subDuration}ms</td>
+                            <td style="text-align: center;" class="confidence-${subsegment.confidence > 0.6 ? 'good' : 'bad'}">
+                                ${(subsegment.confidence * 100).toFixed(1)}%
+                            </td>
+                            <td style="text-align: center;">
+                                <div class="action-buttons">
+                                    <button onclick="dataViewer.playSubsegment(${index}, ${subIndex})" class="play-button">▶</button>
+                                    <button onclick="dataViewer.seekToSubsegment(${index}, ${subIndex})" class="seek-button">↗</button>
+                                    <button onclick="dataViewer.deleteSubsegment(${index}, ${subIndex})" class="delete-button">✖</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+        });
+
+        tableBody.innerHTML = tableHtml;
+    }
+
+    passesFilters(item, startMs, endMs, duration) {
+        // Get filter values
+        const statusFilter = document.getElementById('filterStatus')?.value || '';
+        const speakerFilter = document.getElementById('filterSpeaker')?.value || '';
+        const textFilter = document.getElementById('filterText')?.value.toLowerCase() || '';
+        const durationMin = parseInt(document.getElementById('filterDurationMin')?.value) || 0;
+        const durationMax = parseInt(document.getElementById('filterDurationMax')?.value) || Infinity;
+        const confidenceMin = parseFloat(document.getElementById('filterConfidenceMin')?.value) / 100 || 0;
+        const confidenceMax = parseFloat(document.getElementById('filterConfidenceMax')?.value) / 100 || 1;
+        
+        // Apply filters
+        if (statusFilter && item.status !== statusFilter) return false;
+        if (speakerFilter && item.speaker !== speakerFilter) return false;
+        if (textFilter && !item.text?.toLowerCase().includes(textFilter)) return false;
+        if (duration < durationMin || duration > durationMax) return false;
+        if (item.confidence < confidenceMin || item.confidence > confidenceMax) return false;
+        
+        return true;
+    }
+
+    applyFilters() {
+        this.renderSegmentsTable();
+    }
+
+    clearFilters() {
+        // Clear all filter inputs
+        document.getElementById('filterStatus').value = '';
+        document.getElementById('filterSpeaker').value = '';
+        document.getElementById('filterText').value = '';
+        document.getElementById('filterDurationMin').value = '';
+        document.getElementById('filterDurationMax').value = '';
+        document.getElementById('filterConfidenceMin').value = '';
+        document.getElementById('filterConfidenceMax').value = '';
+        
+        // Re-render table
+        this.renderSegmentsTable();
     }
 
     // Segment manipulation methods

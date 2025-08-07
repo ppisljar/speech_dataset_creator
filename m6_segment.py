@@ -854,7 +854,10 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
             if (segment.start_ms < entry.end_ms and segment.end_ms > entry.start_ms):
                 overlapping_segments.append((seg_idx, segment))
                 segment.speaker = entry.speaker  # Update speaker to pyannote entry speaker
-        
+                # update speaker for all subsegments as well
+                for subsegment in segment.subs:
+                    subsegment.speaker = entry.speaker
+
         if not overlapping_segments:
             continue
             

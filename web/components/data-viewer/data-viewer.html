@@ -37,9 +37,13 @@
         </span>
     </div>
     
-    <!-- Timeline Slider -->
+    <!-- Timeline Scrollbar -->
     <div class="timeline-container">
-        <input type="range" id="timelineSlider" class="timeline-slider" min="0" max="100" value="0">
+        <div class="timeline-scrollbar-container">
+            <div id="timelineScrollbar" class="timeline-scrollbar">
+                <div id="timelineThumb" class="timeline-thumb"></div>
+            </div>
+        </div>
         <div class="timeline-labels">
             <span id="startTime">0:00</span>
             <span>Position: <span id="currentPosition">0:00</span></span>

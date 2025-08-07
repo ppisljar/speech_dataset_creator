@@ -10,7 +10,6 @@
 
 next round:
 !- refactor/ cleanup
-- fix slider, allow scroll
 - improve alignment
 - handle overlapping speach
 - fix pyannote across multiple files
