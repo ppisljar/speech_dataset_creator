@@ -9,6 +9,7 @@ load_dotenv()
  
 # Retrieve the API key from environment variable (ensure SONIOX_API_KEY is set)
 api_key = os.environ.get("SONIOX_API_KEY")
+language = os.environ.get("SONIOX_LANG", "sl")
 if api_key is None:
     raise ValueError("SONIOX_API_KEY environment variable is not set.")
 
@@ -53,7 +54,7 @@ def transcribe_file(input_file, output_file="output.json"):
             json={
                 "file_id": file_id,
                 "model": "stt-async-preview",
-                "language_hints": ["en", "es"],
+                "language_hints": [language],
                 "enable_speaker_diarization": True,
             },
         )
@@ -67,8 +68,6 @@ def transcribe_file(input_file, output_file="output.json"):
         res = session.get(f"{api_base}/v1/transcriptions/{transcription_id}/transcript")
         res.raise_for_status()
         data = res.json()
-        print("Transcript:")
-        print(data["text"])
 
         # ✅ Store full JSON to file
         with open(output_file, "w", encoding="utf-8") as f:

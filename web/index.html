@@ -157,6 +157,8 @@
                 <div>
                     <input type="file" id="fileUpload">
                     <button onclick="uploadFile()">Upload File</button>
+                    <button onclick="cleanProject()" id="cleanProjectBtn" disabled style="background-color: #dc3545; color: white;">Clean</button>
+                    <button onclick="exportProject()" id="exportProjectBtn" disabled style="background-color: #28a745; color: white;">Export</button>
                 </div>
             </div>
         </div>
@@ -444,13 +446,19 @@
         function updateProjectButtons() {
             const deleteBtn = document.getElementById('deleteProjectBtn');
             const editBtn = document.getElementById('editProjectBtn');
+            const cleanBtn = document.getElementById('cleanProjectBtn');
+            const exportBtn = document.getElementById('exportProjectBtn');
             
             if (currentProject) {
                 deleteBtn.disabled = false;
                 editBtn.disabled = false;
+                cleanBtn.disabled = false;
+                exportBtn.disabled = false;
             } else {
                 deleteBtn.disabled = true;
                 editBtn.disabled = true;
+                cleanBtn.disabled = true;
+                exportBtn.disabled = true;
             }
         }
 
@@ -745,7 +753,7 @@
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
 
-                const response = await fetch(`/api/projects/${project}/files/${filetype}`, {
+                const response = await fetch(`/api/projects/${project}/files/raw`, {
                     method: 'POST',
                     body: formData
                 });
@@ -754,13 +762,124 @@
                 if (response.ok) {
                     showMessage(result.message);
                     fileInput.value = '';
-                    loadFiles();
+                    // Refresh the file list if it's loaded
+                    const globalProjectSelect = document.getElementById('globalProjectSelect');
+                    if (globalProjectSelect.value) {
+                        globalProjectSelect.dispatchEvent(new Event('change'));
+                    }
                 } else {
                     showMessage(result.error, true);
                 }
             } catch (error) {
                 showMessage('Error uploading file: ' + error.message, true);
             }
+        }
+
+        async function cleanProject() {
+            if (!currentProject) {
+                showMessage('Please select a project to clean', true);
+                return;
+            }
+
+            const cleanRaw = confirm(`Clean project "${currentProject}"?\n\nThis will remove all processed files from the splits directory.\n\nClick "OK" to clean only splits, or "Cancel" to abort.\n\nTo also clean raw files, hold Shift and click OK.`);
+            
+            if (!cleanRaw) {
+                return;
+            }
+
+            const includeRaw = window.event && window.event.shiftKey;
+            
+            if (includeRaw) {
+                const confirmRaw = confirm(`WARNING: This will also delete all raw files!\n\nAre you absolutely sure you want to clean both splits AND raw files?`);
+                if (!confirmRaw) {
+                    return;
+                }
+            }
+
+            try {
+                const response = await fetch(`/api/projects/${currentProject}/clean`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ raw: includeRaw })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage(result.message);
+                    // Refresh the file lists
+                    const globalProjectSelect = document.getElementById('globalProjectSelect');
+                    if (globalProjectSelect.value) {
+                        globalProjectSelect.dispatchEvent(new Event('change'));
+                    }
+                } else {
+                    showMessage(result.error, true);
+                }
+            } catch (error) {
+                showMessage('Error cleaning project: ' + error.message, true);
+            }
+        }
+
+        async function exportProject() {
+            if (!currentProject) {
+                showMessage('Please select a project to export', true);
+                return;
+            }
+
+            if (!confirm(`Export project "${currentProject}"?\n\nThis will create an archived dataset in the output directory with organized audio files and metadata.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/projects/${currentProject}/export`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage(result.message);
+                    if (result.processing_key) {
+                        // Start monitoring the export process
+                        monitorExportProcessing(currentProject);
+                    }
+                } else {
+                    showMessage(result.error, true);
+                }
+            } catch (error) {
+                showMessage('Error starting export: ' + error.message, true);
+            }
+        }
+
+        async function monitorExportProcessing(project) {
+            const processKey = `${project}_export`;
+            
+            const checkStatus = async () => {
+                try {
+                    const response = await fetch('/api/processing/status');
+                    const statuses = await response.json();
+                    
+                    if (response.ok && statuses[processKey]) {
+                        const status = statuses[processKey];
+                        
+                        if (status.status === 'processing') {
+                            showMessage(`Exporting ${project}: ${status.progress}% - ${status.message}`);
+                            // Check again in 2 seconds
+                            setTimeout(checkStatus, 2000);
+                        } else if (status.status === 'completed') {
+                            showMessage(`Export completed for ${project}! Check the output directory.`);
+                            loadProcessingStatus();
+                        } else if (status.status === 'failed') {
+                            showMessage(`Export failed for ${project}: ${status.message}`, true);
+                            loadProcessingStatus();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking export status:', error);
+                }
+            };
+            
+            checkStatus();
         }
 
         async function deleteFile(project, filetype, filename) {
