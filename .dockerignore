@@ -1,0 +1,86 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+README_DOCKER.md
+*.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.venv/
+venv/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+temp/
+
+# Large data files (uncomment if you don't want to include them)
+# output/
+# raw/
+# checkpoints/
+# projects/
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+Dockerfile*
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model files (if you want to download them at runtime instead)
+# *.pt
+# *.pth
+# *.bin
+# *.onnx
+
+# Audio files (uncomment if you want to exclude them from build)
+# *.wav
+# *.mp3
+# *.flac
+# *.m4a

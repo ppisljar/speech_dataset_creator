@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  speech-dataset-creator:
+    build: .
+    container_name: speech-dataset-creator
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount your data directories
+      - ./projects:/workspace/projects
+      - ./output:/workspace/output
+      - ./raw:/workspace/raw
+      - ./checkpoints:/workspace/checkpoints
+      # Mount .env file
+      - ./.env:/workspace/.env:ro
+      # Optional: Mount additional data
+      - ./data:/workspace/data
+    environment:
+      # Override environment variables here if needed
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optional: Add a volume management container
+  data-manager:
+    image: alpine:latest
+    container_name: speech-dataset-data-manager
+    volumes:
+      - ./projects:/data/projects
+      - ./output:/data/output
+      - ./raw:/data/raw
+      - ./checkpoints:/data/checkpoints
+    command: >
+      sh -c "
+        echo 'Data manager container for speech dataset creator';
+        echo 'Volumes mounted at:';
+        echo '  /data/projects';
+        echo '  /data/output';
+        echo '  /data/raw';
+        echo '  /data/checkpoints';
+        tail -f /dev/null
+      "
+    profiles:
+      - data-manager
