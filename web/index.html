@@ -1650,10 +1650,15 @@
 
             let html = `
                 <h3>Segments (${waveformData.segments.length})</h3>
-                <div style="margin: 10px 0;">
-                    <button onclick="saveSegments()">Save Changes</button>
-                    <button onclick="markAllGood()">Mark All Good</button>
-                    <button onclick="markAllBad()">Mark All Bad</button>
+                <div style="margin: 10px 0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <button onclick="saveSegments()">Save Changes</button>
+                        <button onclick="markAllGood()">Mark All Good</button>
+                        <button onclick="markAllBad()">Mark All Bad</button>
+                    </div>
+                    <div>
+                        <button onclick="buildSplits()" style="background-color: #28a745; color: white;">Build</button>
+                    </div>
                 </div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                     <thead>
@@ -1732,16 +1737,43 @@
                         const subStartMs = Math.round(subsegment.start * 1000);
                         const subEndMs = Math.round(subsegment.end * 1000);
                         const subDuration = subEndMs - subStartMs;
+                        
+                        // Determine status for subsegment
+                        if (subsegment.status === undefined) {
+                            subsegment.status = subsegment.confidence > 0.6 ? 'good' : 'bad';
+                        }
+                        
+                        const subStatusColor = subsegment.status === 'good' ? 'green' : 'red';
                         const subConfidenceColor = subsegment.confidence > 0.6 ? 'green' : 'orange';
                         
                         html += `
-                            <tr style="background-color: #f8f8f8; border-left: 4px solid #ccc;">
+                            <tr id="subsegment-row-${index}-${subIndex}" style="background-color: ${subsegment.status === 'good' ? '#f8fff8' : '#fff8f8'}; border-left: 4px solid #ccc;">
                                 <td style="border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 10px; color: #666;">${segment.seg_idx || index + 1}.${subIndex + 1}</td>
-                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">-</td>
-                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555;">${subsegment.speaker || ''}</td>
-                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555;">${subsegment.text || ''}</td>
-                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555; text-align: center;">${subStartMs}</td>
-                                <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px; color: #555; text-align: center;">${subEndMs}</td>
+                                <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">
+                                    <select onchange="updateSubsegmentStatus(${index}, ${subIndex}, this.value)" style="color: ${subStatusColor}; font-size: 11px;">
+                                        <option value="good" ${subsegment.status === 'good' ? 'selected' : ''}>Good</option>
+                                        <option value="bad" ${subsegment.status === 'bad' ? 'selected' : ''}>Bad</option>
+                                    </select>
+                                </td>
+                                <td style="border: 1px solid #ddd; padding: 4px;">
+                                    <input type="text" value="${subsegment.speaker || ''}" 
+                                           onchange="updateSubsegmentField(${index}, ${subIndex}, 'speaker', this.value)"
+                                           style="width: 70px; border: none; background: transparent; font-size: 11px;">
+                                </td>
+                                <td style="border: 1px solid #ddd; padding: 4px;">
+                                    <textarea onchange="updateSubsegmentField(${index}, ${subIndex}, 'text', this.value)"
+                                              style="width: 180px; height: 30px; border: none; background: transparent; resize: vertical; font-size: 11px;">${subsegment.text || ''}</textarea>
+                                </td>
+                                <td style="border: 1px solid #ddd; padding: 4px;">
+                                    <input type="number" value="${subStartMs}" 
+                                           onchange="updateSubsegmentTime(${index}, ${subIndex}, 'start', this.value)"
+                                           style="width: 60px; border: none; background: transparent; font-size: 11px;">
+                                </td>
+                                <td style="border: 1px solid #ddd; padding: 4px;">
+                                    <input type="number" value="${subEndMs}" 
+                                           onchange="updateSubsegmentTime(${index}, ${subIndex}, 'end', this.value)"
+                                           style="width: 60px; border: none; background: transparent; font-size: 11px;">
+                                </td>
                                 <td style="border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 11px; color: #555;">${subDuration}ms</td>
                                 <td style="border: 1px solid #ddd; padding: 4px; text-align: center; color: ${subConfidenceColor}; font-size: 11px;">
                                     ${(subsegment.confidence * 100).toFixed(1)}%
@@ -1749,6 +1781,7 @@
                                 <td style="border: 1px solid #ddd; padding: 4px; text-align: center;">
                                     <button onclick="playSubsegment(${index}, ${subIndex})" style="margin: 1px; padding: 2px 6px; font-size: 10px;">▶</button>
                                     <button onclick="seekToSubsegment(${index}, ${subIndex})" style="margin: 1px; padding: 2px 6px; font-size: 10px;">↗</button>
+                                    <button onclick="deleteSubsegment(${index}, ${subIndex})" style="margin: 1px; padding: 2px 6px; font-size: 10px; color: red;">✖</button>
                                 </td>
                             </tr>
                         `;
@@ -1767,6 +1800,45 @@
             `;
 
             dataViewer.innerHTML = html;
+        }
+
+        function updateSubsegmentStatus(segmentIndex, subsegmentIndex, status) {
+            waveformData.segments[segmentIndex].subs[subsegmentIndex].status = status;
+            
+            // Update row background color
+            const row = document.getElementById(`subsegment-row-${segmentIndex}-${subsegmentIndex}`);
+            row.style.backgroundColor = status === 'good' ? '#f8fff8' : '#fff8f8';
+            
+            // Update select color
+            const select = row.querySelector('select');
+            select.style.color = status === 'good' ? 'green' : 'red';
+        }
+
+        function updateSubsegmentField(segmentIndex, subsegmentIndex, field, value) {
+            waveformData.segments[segmentIndex].subs[subsegmentIndex][field] = value;
+        }
+
+        function updateSubsegmentTime(segmentIndex, subsegmentIndex, timeType, valueMs) {
+            const timeInSeconds = parseFloat(valueMs) / 1000;
+            const subsegment = waveformData.segments[segmentIndex].subs[subsegmentIndex];
+            
+            if (timeType === 'start') {
+                subsegment.start = timeInSeconds;
+            } else if (timeType === 'end') {
+                subsegment.end = timeInSeconds;
+            }
+            
+            // Update duration display
+            const row = document.getElementById(`subsegment-row-${segmentIndex}-${subsegmentIndex}`);
+            const startMs = Math.round(subsegment.start * 1000);
+            const endMs = Math.round(subsegment.end * 1000);
+            const duration = endMs - startMs;
+            
+            const durationCell = row.cells[6]; // Duration column
+            durationCell.textContent = duration + 'ms';
+            
+            // Redraw waveform to show updated subsegment boundaries
+            drawWaveform();
         }
 
         function updateSegmentStatus(index, status) {
@@ -1893,6 +1965,16 @@
             showMessage(`Seeked to subsegment ${segment.seg_idx || segmentIndex + 1}.${subsegmentIndex + 1}`);
         }
 
+        function deleteSubsegment(segmentIndex, subsegmentIndex) {
+            const subsegment = waveformData.segments[segmentIndex].subs[subsegmentIndex];
+            if (confirm(`Delete subsegment ${segmentIndex + 1}.${subsegmentIndex + 1}: "${subsegment.text}"?`)) {
+                waveformData.segments[segmentIndex].subs.splice(subsegmentIndex, 1);
+                displaySegmentsTable();
+                drawWaveform();
+                showMessage(`Deleted subsegment ${segmentIndex + 1}.${subsegmentIndex + 1}`);
+            }
+        }
+
         function deleteSegment(index) {
             const segment = waveformData.segments[index];
             if (confirm(`Delete segment ${segment.seg_idx || index + 1}: "${segment.text}"?`)) {
@@ -1903,20 +1985,36 @@
             }
         }
 
-        function markAllGood() {
-            waveformData.segments.forEach(segment => {
-                segment.status = 'good';
-            });
-            displaySegmentsTable();
-            showMessage('Marked all segments as good');
-        }
+        async function buildSplits() {
+            const project = currentProject;
+            const filename = document.getElementById('dataFileSelect').value;
+            
+            if (!project || !filename) {
+                showMessage('Please select a project and a file to build.', true);
+                return;
+            }
 
-        function markAllBad() {
-            waveformData.segments.forEach(segment => {
-                segment.status = 'bad';
-            });
-            displaySegmentsTable();
-            showMessage('Marked all segments as bad');
+            if (!confirm(`Are you sure you want to build splits for "${filename}"? This will create the final audio files based on the current segments.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/projects/${project}/splits/${filename}/build`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage(result.message);
+                    if (result.processing_key) {
+                        monitorProcessing(project, filename);
+                    }
+                } else {
+                    showMessage(result.error, true);
+                }
+            } catch (error) {
+                showMessage('Error starting build process: ' + error.message, true);
+            }
         }
 
         async function saveSegments() {
@@ -1941,7 +2039,14 @@
                             text: segment.text,
                             min_conf: segment.confidence
                         },
-                        subs: segment.subs || [],
+                        subs: (segment.subs || []).map(sub => ({
+                            start_ms: Math.round(sub.start * 1000),
+                            end_ms: Math.round(sub.end * 1000),
+                            speaker: sub.speaker,
+                            text: sub.text,
+                            min_conf: sub.confidence,
+                            status: sub.status
+                        })),
                         status: segment.status
                     }))
                 };

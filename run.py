@@ -97,10 +97,13 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
                 # If segmentation is enabled, process the segments
                 print(f"Segmenting {split_path} with segments file {segments_file}")
                 generate_segments(segments_file, split_path, f"{split_path}_segments")
+                
 
     # Validate transcriptions
 
     # construct metadata
+    # TODO: this should actually happen after processing all files in the project
+    generate_metadata(file_temp_dir, os.path.join(file_temp_dir, 'metadata.txt'))
 
     # align and phonetize
 

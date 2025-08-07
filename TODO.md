@@ -18,7 +18,7 @@ web:
 !- detect shorter silences
 !- allow to configure the project (silence length, treshold)
 !- align segments with pyannote/silences
-- add export button which: builds the segments, constructs metadata
+!- add export button which: builds the segments, constructs metadata
 - add clean button (which deletes everythuing but final artifacts)
 - add download button which downloads zip
 
