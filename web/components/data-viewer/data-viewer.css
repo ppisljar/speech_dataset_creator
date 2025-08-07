@@ -1,0 +1,249 @@
+/* Data Viewer Component Styles */
+
+.data-viewer {
+    background-color: #f8f9fa;
+    padding: 10px;
+    margin: 10px 0;
+    min-height: 100px;
+    overflow: auto;
+}
+
+.data-viewer-controls {
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.data-viewer-controls select {
+    min-width: 150px;
+}
+
+.zoom-controls {
+    margin: 10px 0;
+}
+
+.zoom-controls button {
+    margin: 2px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Waveform Viewer */
+.waveform-container {
+    display: none;
+    width: 100%;
+    margin: 20px 0;
+}
+
+.waveform-canvas-container {
+    position: relative;
+    width: 100%;
+    height: 500px;
+    border: 1px solid #ddd;
+    background: #fff;
+}
+
+.waveform-canvas, .annotations-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.waveform-canvas {
+    cursor: crosshair;
+}
+
+.annotations-canvas {
+    pointer-events: none;
+}
+
+/* Audio Controls */
+.audio-controls {
+    margin: 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.audio-time {
+    margin-left: 10px;
+    font-family: monospace;
+}
+
+.volume-control {
+    margin-left: 20px;
+}
+
+.volume-control input[type="range"] {
+    width: 100px;
+}
+
+/* Timeline Slider */
+.timeline-container {
+    margin: 10px 0;
+}
+
+.timeline-slider {
+    width: 100%;
+}
+
+.timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+/* Legend */
+.waveform-legend {
+    margin: 10px 0;
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.legend-color {
+    border: 2px solid;
+    padding: 2px 8px;
+}
+
+.legend-silences {
+    border-color: blue;
+}
+
+.legend-pyannote {
+    border-color: green;
+}
+
+.legend-segments {
+    border-color: red;
+}
+
+.legend-subsegments {
+    border-color: purple;
+}
+
+.legend-transcriptions {
+    border-color: orange;
+}
+
+/* Segments Table */
+.segments-table-container {
+    margin: 20px 0;
+}
+
+.segments-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.segments-table th {
+    background-color: #f0f0f0;
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.segments-table td {
+    border: 1px solid #ddd;
+    padding: 4px;
+}
+
+.segments-table input, .segments-table textarea, .segments-table select {
+    border: none;
+    background: transparent;
+    width: 100%;
+    resize: none;
+}
+
+.segments-table textarea {
+    resize: vertical;
+    height: 40px;
+}
+
+.segment-row {
+    font-weight: bold;
+}
+
+.segment-row.good {
+    background-color: #f0fff0;
+}
+
+.segment-row.bad {
+    background-color: #fff0f0;
+}
+
+.subsegment-row {
+    border-left: 4px solid #ccc;
+}
+
+.subsegment-row.good {
+    background-color: #f8fff8;
+}
+
+.subsegment-row.bad {
+    background-color: #fff8f8;
+}
+
+.segments-actions {
+    margin: 10px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.segments-legend {
+    margin: 10px 0;
+    font-size: 12px;
+    color: #666;
+}
+
+.confidence-good {
+    color: green;
+}
+
+.confidence-bad {
+    color: orange;
+}
+
+.status-good {
+    color: green;
+}
+
+.status-bad {
+    color: red;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 2px;
+}
+
+.action-buttons button {
+    margin: 1px;
+    padding: 2px 6px;
+    font-size: 10px;
+    min-width: auto;
+}
+
+.play-button {
+    background-color: #28a745;
+}
+
+.seek-button {
+    background-color: #007bff;
+}
+
+.delete-button {
+    background-color: #dc3545;
+    color: white;
+}

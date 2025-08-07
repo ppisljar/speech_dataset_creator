@@ -1,0 +1,72 @@
+<!-- Data Viewer Component HTML -->
+<div class="data-viewer-controls">
+    <select id="dataFileSelect">
+        <option value="">Select File</option>
+    </select>
+    <select id="dataSplitSelect">
+        <option value="">Select Split</option>
+    </select>
+    <button onclick="loadData()">Load Data</button>
+    <button onclick="refreshFile()">Refresh File</button>
+</div>
+
+<div class="zoom-controls">
+    <span>Zoom: </span>
+    <button onclick="setZoom(1000)">1s/px</button>
+    <button onclick="setZoom(100)">100ms/px</button>
+    <button onclick="setZoom(50)">50ms/px</button>
+    <button onclick="setZoom(10)">10ms/px</button>
+    <span id="currentZoom" style="margin-left: 10px;"></span>
+</div>
+
+<!-- Waveform Viewer -->
+<div id="waveformContainer" class="waveform-container">
+    <div class="waveform-canvas-container">
+        <canvas id="waveformCanvas" class="waveform-canvas" width="1200" height="500"></canvas>
+        <canvas id="annotationsCanvas" class="annotations-canvas" width="1200" height="500"></canvas>
+    </div>
+    
+    <!-- Audio Controls -->
+    <div class="audio-controls">
+        <button id="playBtn" onclick="playAudio()" disabled>Play</button>
+        <button id="pauseBtn" onclick="pauseAudio()" disabled style="display: none;">Pause</button>
+        <button id="stopBtn" onclick="stopAudio()" disabled>Stop</button>
+        <span id="audioTime" class="audio-time">0:00 / 0:00</span>
+        <span class="volume-control">
+            Volume: <input type="range" id="volumeSlider" min="0" max="100" value="50">
+        </span>
+    </div>
+    
+    <!-- Timeline Slider -->
+    <div class="timeline-container">
+        <input type="range" id="timelineSlider" class="timeline-slider" min="0" max="100" value="0">
+        <div class="timeline-labels">
+            <span id="startTime">0:00</span>
+            <span>Position: <span id="currentPosition">0:00</span></span>
+            <span id="endTime">0:00</span>
+        </div>
+    </div>
+    
+    <!-- Legend -->
+    <div class="waveform-legend">
+        <div class="legend-item">
+            <span class="legend-color legend-silences">Silences</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color legend-pyannote">Pyannote</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color legend-segments">Segments</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color legend-subsegments">Subsegments</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color legend-transcriptions">Transcriptions</span>
+        </div>
+    </div>
+</div>
+
+<div id="dataViewer" class="data-viewer">
+    <!-- Segments table will be displayed here -->
+</div>
