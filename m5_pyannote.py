@@ -8,6 +8,8 @@ import uuid
 from pyannote.audio import Pipeline, Model
 from pyannote.core import Segment
 import argparse
+import torch
+import torchaudio
 
 HF_TOKEN = os.environ.get("HF_TOKEN")  # or set to string, e.g., "hf_abc..."
 
@@ -30,7 +32,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         output_file (str): Base path for output files (will create .rttm and .csv)
         min_speakers (int, optional): Minimum number of speakers
         max_speakers (int, optional): Maximum number of speakers
-        speaker_db (dict, optional): Existing speaker database for reference
+        speaker_db (str, optional): Path to speaker database file (optional)
         speaker_threshold (float, optional): Similarity threshold for speaker matching
     
     Returns:
@@ -39,7 +41,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
     AUDIO = input_file
     
     # If input is mp3, convert to 16kHz mono wav if not already present
-    if AUDIO.lower().endswith(".mp3"):
+    if AUDIO.lower().endswith(('.mp3', '.m4a', '.flac')):
         wav_file = os.path.splitext(AUDIO)[0] + "_16khz.wav"
         if not os.path.exists(wav_file):
             print(f"Converting {AUDIO} to {wav_file} (16kHz mono)...")
@@ -58,14 +60,20 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         use_auth_token=HF_TOKEN,
     )
 
-    # Load embedding model
+    # Load embedding model for speaker matching
     speakers = {}
     embedder = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
     if speaker_db is not None:
         speakers = load_db(speaker_db)
 
-    waveform, sample_rate = embedder.audio.from_file(input_file)
-
+    # Load audio using torchaudio (correct way for current pyannote)
+    waveform, sample_rate = torchaudio.load(AUDIO)
+    
+    # Ensure mono audio for embedder
+    if isinstance(waveform, torch.Tensor) and waveform.shape[0] > 1:
+        # Average across channels (dim=0) to convert stereo to mono
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+    
     # Prepare pipeline arguments for min/max speakers
     pipeline_kwargs = {}
     if min_speakers is not None:
@@ -84,17 +92,57 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
     # --- Also save a simple CSV for inspection ---
     rows = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
-        # Get speaker embedding
-        embedding = embedder({'waveform': waveform, 'sample_rate': sample_rate}, segments=[turn])[0].numpy()
+        # Extract segment waveform for embedding
+        start_sample = int(turn.start * sample_rate)
+        end_sample = int(turn.end * sample_rate)
+        segment_waveform = waveform[:, start_sample:end_sample]
+        
+        # Create proper input for embedding model
+        segment_input = {
+            'waveform': segment_waveform,
+            'sample_rate': sample_rate
+        }
+        
+        # Extract embedding for this segment
+        with torch.no_grad():
+            try:
+                embedding = embedder(segment_input)
+                if isinstance(embedding, torch.Tensor):
+                    embedding = embedding.numpy()
+                elif hasattr(embedding, 'numpy'):
+                    embedding = embedding.numpy()
+                else:
+                    # If it's already a numpy array or list
+                    embedding = np.array(embedding)
+                
+                # Ensure it's 1D
+                if embedding.ndim > 1:
+                    embedding = embedding.flatten()
+                    
+            except Exception as e:
+                print(f"Warning: Could not extract embedding for segment {turn.start}-{turn.end}: {e}")
+                # Fall back to using the original speaker label
+                speaker_name = speaker
+                rows.append({
+                    "speaker": speaker_name,
+                    "start": round(turn.start, 3),
+                    "end": round(turn.end, 3),
+                    "duration": round(turn.duration, 3),
+                })
+                continue
         
         # Try to match to known speakers
         best_name = None
         best_score = -1
         for name, ref_vector in speakers.items():
-            sim = cosine_similarity(embedding, ref_vector)
-            if sim > speaker_threshold and sim > best_score:
-                best_name = name
-                best_score = sim
+            try:
+                sim = cosine_similarity(embedding, ref_vector)
+                if sim > speaker_threshold and sim > best_score:
+                    best_name = name
+                    best_score = sim
+            except Exception as e:
+                print(f"Warning: Could not compare with speaker {name}: {e}")
+                continue
 
         if best_name:
             speaker_name = best_name
@@ -109,7 +157,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
             "duration": round(turn.duration, 3),
         })
     
-
+    # Save updated speaker database
     if speaker_db is not None:
         save_db(speakers, speaker_db)
 

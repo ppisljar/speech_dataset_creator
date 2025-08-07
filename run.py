@@ -34,7 +34,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
     print(f"Processing file: {file_name}")
 
     # in temp folder we create a cleaned audio file and temp_folder/<file_name>/ where we store all the split audio files
-    file_temp_dir = Path(os.path.join(temp_dir, file_name))
+    file_temp_dir = Path(temp_dir) # Path(os.path.join(temp_dir, file_name))
     if not file_temp_dir.exists():
         file_temp_dir.mkdir(parents=True, exist_ok=True)
 

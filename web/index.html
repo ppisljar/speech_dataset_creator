@@ -1396,13 +1396,8 @@
                 return;
             }
 
-            if (!splitname) {
-                showMessage('Please select a split', true);
-                return;
-            }
-
             try {
-                const response = await fetch(`/api/projects/${project}/splits/${splitname}/refresh`, {
+                const response = await fetch(`/api/projects/${project}/splits/${filename}/refresh`, {
                     method: 'POST'
                 });
 
@@ -1411,7 +1406,7 @@
                     showMessage(result.message);
                     if (result.processing_key) {
                         // Start monitoring the processing status
-                        monitorProcessing(project, splitname);
+                        monitorProcessing(project, filename);
                     }
                 } else {
                     showMessage(result.error, true);

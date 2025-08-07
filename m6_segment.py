@@ -46,6 +46,7 @@ import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import List, Tuple, Optional
+import pandas as pd
 
 # ----------------------------
 # Tunables_PUNT 
@@ -95,6 +96,20 @@ class Segment:
     min_conf: float
     pad_start_ms: int = 0
     pad_end_ms: int = 0
+
+@dataclass
+class PyannoteEntry:
+    speaker: str
+    start_ms: int
+    end_ms: int
+    duration_ms: int
+
+@dataclass
+class PyannoteEntry:
+    speaker: str
+    start_ms: int
+    end_ms: int
+    duration_ms: int
 
 # ----------------------------
 # Token utilities
@@ -425,12 +440,60 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
             min_conf = min(t.confidence for t in subseg_tokens)
             if s_end > s_start:
                 subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
+        # Merge subsegments with no gaps between them
+        merged_subsegments = merge_subsegments_with_no_gaps(subsegments)
+        
         if len(seg.text) > 1:
-            output_segments.append({'main': seg, 'subs': subsegments})
+            output_segments.append({'main': seg, 'subs': merged_subsegments})
         else:
             # add this to previous segment as its a single char
             output_segments[-1]['main'].text += seg.text
     return output_segments
+
+
+def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
+    """
+    Merge adjacent subsegments when there's no gap between them.
+    
+    :param subsegments: List of subsegments to potentially merge
+    :return: List of merged subsegments
+    """
+    if len(subsegments) <= 1:
+        return subsegments
+    
+    merged = []
+    current_segment = subsegments[0]
+    
+    for i in range(1, len(subsegments)):
+        next_segment = subsegments[i]
+        
+        # Check if there's no gap between current and next segment
+        # Allow for small overlaps or very small gaps (up to 10ms)
+        gap_ms = next_segment.start_ms - current_segment.end_ms
+        
+        if gap_ms <= 10:  # No gap or very small gap/overlap
+            # Merge the segments
+            merged_text = current_segment.text.rstrip() + " " + next_segment.text.lstrip()
+            merged_min_conf = min(current_segment.min_conf, next_segment.min_conf)
+            
+            current_segment = Segment(
+                speaker=current_segment.speaker,
+                text=merged_text,
+                start_ms=current_segment.start_ms,
+                end_ms=next_segment.end_ms,
+                min_conf=merged_min_conf,
+                pad_start_ms=current_segment.pad_start_ms,
+                pad_end_ms=next_segment.pad_end_ms
+            )
+        else:
+            # There's a significant gap, keep current segment and start new one
+            merged.append(current_segment)
+            current_segment = next_segment
+    
+    # Add the last segment
+    merged.append(current_segment)
+    
+    return merged
 
 # ----------------------------
 # Confidence prefix
@@ -477,6 +540,19 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     # Segments (with inline boundary checks/adjustments)
     print("building segments")
     segments = build_segments(tokens, silences)
+
+    # Load pyannote data for segment refinement
+    pyannote_entries = []
+    if pyannote_csv_path.exists():
+        print("loading pyannote data for segment refinement...")
+        pyannote_entries = load_pyannote_entries(pyannote_csv_path)
+        print(f"loaded {len(pyannote_entries)} pyannote entries")
+
+    # Refine segments using pyannote data
+    if pyannote_entries:
+        print("refining segments with pyannote data...")
+        segments = refine_segments_with_pyannote(segments, pyannote_entries, silences)
+        print("segment refinement complete")
 
     # Convert segments to serializable format
     serializable_segments = []
@@ -607,6 +683,198 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
 
     total = sum(counters.values())
     print(f"[ok] Generated {total} main segments across {len(counters)} speaker(s) under {outdir/'speakers'}")
+
+# ----------------------------
+# Pyannote utilities
+# ----------------------------
+
+def load_pyannote_entries(csv_path: Path) -> List[PyannoteEntry]:
+    """Load pyannote speaker diarization entries from CSV file."""
+    if not csv_path.exists():
+        return []
+    
+    import pandas as pd
+    df = pd.read_csv(csv_path)
+    entries = []
+    
+    for _, row in df.iterrows():
+        entries.append(PyannoteEntry(
+            speaker=str(row['speaker']),
+            start_ms=int(row['start'] * 1000),
+            end_ms=int(row['end'] * 1000),
+            duration_ms=int(row['duration'] * 1000)
+        ))
+    
+    return entries
+
+def find_overlapping_pyannote_entries(pyannote_entries: List[PyannoteEntry], segment: Segment) -> List[PyannoteEntry]:
+    """Find pyannote entries that overlap with the given segment."""
+    overlapping = []
+    for entry in pyannote_entries:
+        # Check if entry overlaps with segment
+        if entry.start_ms < segment.end_ms and entry.end_ms > segment.start_ms:
+            overlapping.append(entry)
+    return overlapping
+
+def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: List[PyannoteEntry], silences: List[Sil]) -> List[dict]:
+    """
+    Refine segment boundaries using pyannote speaker diarization data.
+    
+    Strategy:
+    1. For each pyannote annotation, find all segments that overlap with it
+    2. Only extend the first segment's start to match annotation start
+    3. Only extend the last segment's end to match annotation end
+    4. This prevents overlapping segments while aligning to pyannote boundaries
+    """
+    if not pyannote_entries:
+        print("[warn] No pyannote entries found, skipping refinement")
+        return segments_list
+    
+    # Create a list of all main segments for analysis
+    print(f"refining segments with pyannote data... {len(pyannote_entries)} entries found")  
+    all_segments = []
+    for i, segdict in enumerate(segments_list):
+        main_seg = segdict['main']
+        all_segments.append((i, main_seg))
+    
+    # Sort segments by start time
+    all_segments.sort(key=lambda x: x[1].start_ms)
+    
+    refined_segments = [segdict.copy() for segdict in segments_list]
+    
+    # Process each pyannote entry
+    for entry in pyannote_entries:
+        # Find segments that overlap with this pyannote entry
+        overlapping_segments = []
+        for seg_idx, segment in all_segments:
+            if (segment.start_ms < entry.end_ms and segment.end_ms > entry.start_ms):
+                overlapping_segments.append((seg_idx, segment))
+                segment.speaker = entry.speaker  # Update speaker to pyannote entry speaker
+        
+        if not overlapping_segments:
+            continue
+            
+        # Sort by start time to identify first and last
+        overlapping_segments.sort(key=lambda x: x[1].start_ms)
+        
+        # Extend first segment's start to annotation start (if annotation starts earlier)
+        first_idx, first_segment = overlapping_segments[0]
+        if entry.start_ms < first_segment.start_ms:
+            new_start_ms = entry.start_ms
+            refined_main = refined_segments[first_idx]['main']
+            refined_segments[first_idx]['main'] = Segment(
+                speaker=refined_main.speaker,
+                text=refined_main.text,
+                start_ms=new_start_ms,
+                end_ms=refined_main.end_ms,
+                min_conf=refined_main.min_conf,
+                pad_start_ms=refined_main.pad_start_ms,
+                pad_end_ms=refined_main.pad_end_ms
+            )
+        
+        # Extend last segment's end to annotation end (if annotation ends later)
+        last_idx, last_segment = overlapping_segments[-1]
+        if entry.end_ms > last_segment.end_ms:
+            new_end_ms = entry.end_ms
+            refined_main = refined_segments[last_idx]['main']
+            refined_segments[last_idx]['main'] = Segment(
+                speaker=refined_main.speaker,
+                text=refined_main.text,
+                start_ms=refined_main.start_ms,
+                end_ms=new_end_ms,
+                min_conf=refined_main.min_conf,
+                pad_start_ms=refined_main.pad_start_ms,
+                pad_end_ms=refined_main.pad_end_ms
+            )
+    
+    # Recheck boundary silence guarantees and update subsegments for modified segments
+    for i, segdict in enumerate(refined_segments):
+        original_main = segments_list[i]['main']
+        refined_main = segdict['main']
+        
+        # If main segment changed, update silence guarantees
+        if (refined_main.start_ms != original_main.start_ms or 
+            refined_main.end_ms != original_main.end_ms):
+            
+            # Recheck boundary silence guarantees
+            if not silence_covering_point(silences, refined_main.start_ms, REQUIRED_SIL_START_MS):
+                refined_main.pad_start_ms = EDGE_OFFSET_MS
+            if not silence_covering_point(silences, refined_main.end_ms, REQUIRED_SIL_END_MS):
+                refined_main.pad_end_ms = max(refined_main.pad_end_ms, EDGE_OFFSET_MS)
+            
+            # Update the segment in the list
+            refined_segments[i]['main'] = refined_main
+            
+            # Scale subsegments if main segment changed
+            original_subs = segments_list[i]['subs']
+            if original_subs:
+                refined_segments[i]['subs'] = scale_subsegments(refined_main, original_main, original_subs)
+    
+    return refined_segments
+
+def scale_subsegments(main_segment: Segment, original_main: Segment, subsegments: List[Segment]) -> List[Segment]:
+    """
+    Scale/move subsegments when main segment boundaries change.
+    First subsegment starts at main segment start, last subsegment ends at main segment end.
+    """
+    if not subsegments:
+        return []
+    
+    if len(subsegments) == 1:
+        # Single subsegment should match main segment exactly
+        return [Segment(
+            speaker=subsegments[0].speaker,
+            text=subsegments[0].text,
+            start_ms=main_segment.start_ms,
+            end_ms=main_segment.end_ms,
+            min_conf=subsegments[0].min_conf,
+            pad_start_ms=main_segment.pad_start_ms,
+            pad_end_ms=main_segment.pad_end_ms
+        )]
+    
+    # Calculate scaling factors
+    original_duration = original_main.end_ms - original_main.start_ms
+    new_duration = main_segment.end_ms - main_segment.start_ms
+    
+    if original_duration <= 0:
+        return subsegments  # Can't scale if original has no duration
+    
+    scale_factor = new_duration / original_duration
+    
+    scaled_subsegments = []
+    for i, subseg in enumerate(subsegments):
+        # Calculate relative position within original main segment
+        rel_start = subseg.start_ms - original_main.start_ms
+        rel_end = subseg.end_ms - original_main.start_ms
+        
+        # Scale and translate to new main segment
+        new_start = main_segment.start_ms + int(rel_start * scale_factor)
+        new_end = main_segment.start_ms + int(rel_end * scale_factor)
+        
+        # Ensure first subsegment starts at main start and last ends at main end
+        if i == 0:
+            new_start = main_segment.start_ms
+        if i == len(subsegments) - 1:
+            new_end = main_segment.end_ms
+        
+        # Ensure subsegments don't overlap and are in order
+        if i > 0 and new_start < scaled_subsegments[-1].end_ms:
+            new_start = scaled_subsegments[-1].end_ms
+        
+        if new_end <= new_start:
+            new_end = new_start + 100  # Minimum 100ms duration
+        
+        scaled_subsegments.append(Segment(
+            speaker=subseg.speaker,
+            text=subseg.text,
+            start_ms=new_start,
+            end_ms=new_end,
+            min_conf=subseg.min_conf,
+            pad_start_ms=subseg.pad_start_ms if i == 0 else 0,
+            pad_end_ms=subseg.pad_end_ms if i == len(subsegments) - 1 else 0
+        ))
+    
+    return scaled_subsegments
 
 # ----------------------------
 # Main
