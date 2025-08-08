@@ -5,7 +5,7 @@ import aiohttp
 import sys
 import argparse
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
 # Base URL for the podcast site
 BASE_URL = 'https://podcasti.si/{podcast}/?page={page_num}'
@@ -27,11 +27,27 @@ def extract_mp3_links(page_html):
 
 # Function to sanitize URL and get the file name without query params
 def get_filename_from_url(url):
+    # Parse the URL to get the path
     parsed_url = urlparse(url)
-    filename = os.path.basename(parsed_url.path)  # Get the filename from the URL path
+    
+    # Get the full path and decode URL-encoded characters
+    decoded_path = unquote(parsed_url.path)
+    
+    # Extract just the filename from the path
+    filename = os.path.basename(decoded_path)
+    
     # Remove any query parameters (everything after '?')
     if '?' in filename:
         filename = filename.split('?')[0]
+    
+    # Replace any remaining slashes and other problematic characters with underscores
+    filename = filename.replace('/', '_').replace('\\', '_')
+    
+    # Remove or replace other characters that might be problematic in filenames
+    problematic_chars = ['<', '>', ':', '"', '|', '*']
+    for char in problematic_chars:
+        filename = filename.replace(char, '_')
+    
     return filename
 
 # Function to download the MP3 file using wget
