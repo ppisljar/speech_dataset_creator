@@ -144,17 +144,20 @@ class PodcastManager {
     updateProjectButtons() {
         const deleteBtn = document.getElementById('deleteProjectBtn');
         const editBtn = document.getElementById('editProjectBtn');
+        const runAllBtn = document.getElementById('runAllBtn');
         const cleanBtn = document.getElementById('cleanProjectBtn');
         const exportBtn = document.getElementById('exportProjectBtn');
         
         if (this.currentProject) {
             deleteBtn.disabled = false;
             editBtn.disabled = false;
+            runAllBtn.disabled = false;
             cleanBtn.disabled = false;
             exportBtn.disabled = false;
         } else {
             deleteBtn.disabled = true;
             editBtn.disabled = true;
+            runAllBtn.disabled = true;
             cleanBtn.disabled = true;
             exportBtn.disabled = true;
         }
@@ -407,6 +410,84 @@ async function uploadFile() {
     } catch (error) {
         podcastManager.showMessage('Error uploading file: ' + error.message, true);
     }
+}
+
+async function runAllFiles() {
+    if (!podcastManager.currentProject) {
+        podcastManager.showMessage('Please select a project to run', true);
+        return;
+    }
+
+    if (!confirm(`Run processing on all files in project "${podcastManager.currentProject}"?\n\nThis will process all audio files in the raw directory through the complete pipeline.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/projects/${podcastManager.currentProject}/run`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+            podcastManager.showMessage(result.message);
+            if (result.processing_keys && result.processing_keys.length > 0) {
+                // Start monitoring the processing for all files
+                monitorMultipleProcessing(podcastManager.currentProject, result.files);
+            }
+        } else {
+            podcastManager.showMessage(result.error, true);
+        }
+    } catch (error) {
+        podcastManager.showMessage('Error starting processing: ' + error.message, true);
+    }
+}
+
+async function monitorMultipleProcessing(project, filenames) {
+    const processKeys = filenames.map(filename => `${project}_${filename}`);
+    
+    const checkStatuses = async () => {
+        try {
+            const response = await fetch('/api/processing/status');
+            const statuses = await response.json();
+            
+            if (response.ok) {
+                let completedCount = 0;
+                let failedCount = 0;
+                let processingCount = 0;
+                
+                for (const processKey of processKeys) {
+                    if (statuses[processKey]) {
+                        const status = statuses[processKey];
+                        if (status.status === 'completed') {
+                            completedCount++;
+                        } else if (status.status === 'failed') {
+                            failedCount++;
+                        } else if (status.status === 'processing') {
+                            processingCount++;
+                        }
+                    }
+                }
+                
+                if (processingCount > 0) {
+                    podcastManager.showMessage(`Processing ${project}: ${completedCount}/${processKeys.length} completed, ${processingCount} in progress`);
+                    // Check again in 3 seconds
+                    setTimeout(checkStatuses, 3000);
+                } else {
+                    // All processing finished
+                    if (failedCount > 0) {
+                        podcastManager.showMessage(`Processing completed for ${project}: ${completedCount} successful, ${failedCount} failed. Check processing status for details.`, failedCount > completedCount);
+                    } else {
+                        podcastManager.showMessage(`All files processed successfully for ${project}!`);
+                    }
+                    podcastManager.loadProcessingStatus();
+                }
+            }
+        } catch (error) {
+            console.error('Error checking processing statuses:', error);
+        }
+    };
+    
+    checkStatuses();
 }
 
 async function cleanProject() {

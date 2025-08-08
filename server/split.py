@@ -144,6 +144,58 @@ def create_split_routes(projects_dir, processing_status):
             }), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/run', methods=['POST'])
+    def run_all_files(project_name):
+        """Run processing on all files in the project's raw directory"""
+        try:
+            # Get the raw directory path
+            raw_dir_path = os.path.join(projects_dir, project_name, 'raw')
+            if not os.path.exists(raw_dir_path):
+                return jsonify({'error': 'Raw directory not found for project'}), 404
+
+            # Get all audio files in the raw directory
+            audio_files = []
+            for item in os.listdir(raw_dir_path):
+                if item.lower().endswith(('.mp3', '.wav', '.m4a', '.flac', '.ogg')):
+                    audio_files.append(item)
+
+            if not audio_files:
+                return jsonify({'error': 'No audio files found in raw directory'}), 404
+
+            # Check if any files are already being processed
+            already_processing = []
+            for filename in audio_files:
+                process_key = f"{project_name}_{filename}"
+                if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
+                    already_processing.append(filename)
+
+            if already_processing:
+                return jsonify({
+                    'error': f'Some files are already being processed: {", ".join(already_processing)}'
+                }), 409
+
+            # Start background processing for all files
+            processing_keys = []
+            for filename in audio_files:
+                raw_file_path = os.path.join(raw_dir_path, filename)
+                process_key = f"{project_name}_{filename}"
+                processing_keys.append(process_key)
+                
+                thread = threading.Thread(
+                    target=process_file_background,
+                    args=(project_name, filename, raw_file_path, projects_dir, processing_status)
+                )
+                thread.daemon = True
+                thread.start()
+
+            return jsonify({
+                'message': f'Processing started for {len(audio_files)} files in project {project_name}',
+                'files': audio_files,
+                'processing_keys': processing_keys
+            }), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
         
     @split_bp.route('/api/projects/<project_name>/splits/<splitnam>/<filename>', methods=['GET', 'PUT'])
     def get_split_file(project_name, splitnam, filename):

@@ -55,14 +55,21 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         AUDIO = wav_file
 
     # Load overlap-aware diarization pipeline
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not torch.cuda.is_available():
+        print("WARNING: running on CPU")
+        
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
         use_auth_token=HF_TOKEN,
     )
 
+    pipeline.to(device)
+
     # Load embedding model for speaker matching
     speakers = {}
     embedder = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
+    embedder.to(device)
     if speaker_db is not None:
         speakers = load_db(speaker_db)
 
