@@ -7,7 +7,7 @@ status_bp = Blueprint('status', __name__)
 def create_status_routes(projects_dir, processing_status):
     """Create and return the status blueprint with injected dependencies"""
     
-    @status_bp.route('/api/projects/<project_name>/segments/<filename>', methods=['GET'])
+    @status_bp.route('/api/projects/<project_name>/segments/<path:filename>', methods=['GET'])
     def get_segments(project_name, filename):
         """Return segments.json for a file"""
         try:
@@ -23,7 +23,7 @@ def create_status_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         
-    @status_bp.route('/api/projects/<project_name>/audio/<filename>', methods=['GET'])
+    @status_bp.route('/api/projects/<project_name>/audio/<path:filename>', methods=['GET'])
     def get_audio(project_name, filename):
         """Return audio.wav for a file"""
         try:
@@ -36,7 +36,7 @@ def create_status_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @status_bp.route('/api/projects/<project_name>/processing/<filename>/status', methods=['GET'])
+    @status_bp.route('/api/projects/<project_name>/processing/<path:filename>/status', methods=['GET'])
     def get_processing_status(project_name, filename):
         """Get the processing status of a file"""
         try:

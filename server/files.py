@@ -121,7 +121,7 @@ def create_files_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @files_bp.route('/api/projects/<project_name>/files/<filetype>/<filename>', methods=['PUT'])
+    @files_bp.route('/api/projects/<project_name>/files/<filetype>/<path:filename>', methods=['PUT'])
     def rename_file(project_name, filetype, filename):
         """Rename a file"""
         try:
@@ -146,7 +146,7 @@ def create_files_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @files_bp.route('/api/projects/<project_name>/files/<filetype>/<filename>', methods=['DELETE'])
+    @files_bp.route('/api/projects/<project_name>/files/<filetype>/<path:filename>', methods=['DELETE'])
     def delete_file(project_name, filetype, filename):
         """Delete a file"""
         try:
