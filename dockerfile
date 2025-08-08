@@ -32,7 +32,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY . .
+RUN git clone https://github.com/ppisljar/speech_dataset_creator.git /workspace/sdc
 
 # Create startup script for vast.ai
 RUN echo '#!/bin/bash' > /workspace/start.sh \
@@ -40,7 +40,7 @@ RUN echo '#!/bin/bash' > /workspace/start.sh \
     && echo '# Start the Flask server' >> /workspace/start.sh \
     && echo 'echo "Starting Speech Dataset Creator..."' >> /workspace/start.sh \
     && echo 'echo "Web interface will be available at http://localhost:${FLASK_PORT:-5000}"' >> /workspace/start.sh \
-    && echo 'python _server.py' >> /workspace/start.sh \
+    && echo 'cd /workspace/sdc && python _server.py' >> /workspace/start.sh \
     && chmod +x /workspace/start.sh
 
 # Set proper permissions

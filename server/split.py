@@ -65,7 +65,7 @@ def process_file_background(project_name, filename, file_path, projects_dir, pro
 def create_split_routes(projects_dir, processing_status):
     """Create and return the split blueprint with injected dependencies"""
     
-    @split_bp.route('/api/projects/<project_name>/splits/<filename>', methods=['GET'])
+    @split_bp.route('/api/projects/<project_name>/splits/<path:filename>', methods=['GET'])
     def get_splits(project_name, filename):
         """List all mp3/wav files under projects/$project/splits/$filename/"""
         try:
@@ -81,7 +81,7 @@ def create_split_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @split_bp.route('/api/projects/<project_name>/splits/<filename>/refresh', methods=['POST'])
+    @split_bp.route('/api/projects/<project_name>/splits/<path:filename>/refresh', methods=['POST'])
     def refresh_split_file(project_name, filename):
         """Refresh a split file by reprocessing it"""
         try:
@@ -113,7 +113,7 @@ def create_split_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         
-    @split_bp.route('/api/projects/<project_name>/splits/<filename>/build', methods=['POST'])
+    @split_bp.route('/api/projects/<project_name>/splits/<path:filename>/build', methods=['POST'])
     def build_split_file(project_name, filename):
         """Build splits"""
         try:
@@ -197,7 +197,7 @@ def create_split_routes(projects_dir, processing_status):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         
-    @split_bp.route('/api/projects/<project_name>/splits/<splitnam>/<filename>', methods=['GET', 'PUT'])
+    @split_bp.route('/api/projects/<project_name>/splits/<path:splitnam>/<filename>', methods=['GET', 'PUT'])
     def get_split_file(project_name, splitnam, filename):
         """Get or update a specific split file"""
         try:

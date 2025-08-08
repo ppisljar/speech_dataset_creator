@@ -58,7 +58,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if not torch.cuda.is_available():
         print("WARNING: running on CPU")
-        
+
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
         use_auth_token=HF_TOKEN,
@@ -114,6 +114,18 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         with torch.no_grad():
             try:
                 embedding = embedder(segment_input)
+                
+                # Handle different types of embedding output
+                if isinstance(embedding, dict):
+                    # If it's a dict, try to get the 'waveform' or 'embedding' key
+                    if 'embedding' in embedding:
+                        embedding = embedding['embedding']
+                    elif 'waveform' in embedding:
+                        embedding = embedding['waveform']
+                    else:
+                        # Take the first tensor value from the dict
+                        embedding = next(iter(embedding.values()))
+                
                 if isinstance(embedding, torch.Tensor):
                     embedding = embedding.numpy()
                 elif hasattr(embedding, 'numpy'):
@@ -123,7 +135,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                     embedding = np.array(embedding)
                 
                 # Ensure it's 1D
-                if embedding.ndim > 1:
+                if hasattr(embedding, 'ndim') and embedding.ndim > 1:
                     embedding = embedding.flatten()
                     
             except Exception as e:
