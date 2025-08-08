@@ -13,6 +13,9 @@ BASE_URL = 'https://podcasti.si/{podcast}/?page={page_num}'
 # Function to fetch the HTML content of the page
 async def fetch_page(session, url):
     async with session.get(url) as response:
+        if response.status == 404:
+            return None  # Return None for 404 errors to indicate end of pages
+        response.raise_for_status()  # Raise an exception for other HTTP errors
         return await response.text()
 
 # Function to extract MP3 links from a single page
@@ -50,17 +53,23 @@ def generate_sequential_name(index):
     return f"pod_{index:05d}.mp3"
 
 # Main function to scrape and download MP3s from all pages
-async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_names=False, override=False):
+async def get_podcasts(base_url, output_dir='./aidea', max_pages=100, use_custom_names=False, override=False):
     # Create the 'aidea' folder if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
     async with aiohttp.ClientSession() as session:
         file_index = 1
-        # Loop through pages 1 to 10
+        # Loop through pages 1 to max_pages
         for page_num in range(1, max_pages + 1):
             page_url = BASE_URL.format(podcast=base_url, page_num=page_num)
             print(f"Fetching page {page_num}...")
             page_html = await fetch_page(session, page_url)
+            
+            # If page_html is None, it means we got a 404 - this is the last page
+            if page_html is None:
+                print(f"Reached the end (404 error on page {page_num}). Stopping.")
+                break
+                
             mp3_urls = extract_mp3_links(page_html)
 
             # Download each MP3 file found on the page
