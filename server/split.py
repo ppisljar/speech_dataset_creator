@@ -70,15 +70,17 @@ def create_split_routes(projects_dir, processing_status):
     def get_splits(project_name, filename):
         """List all mp3/wav files under projects/$project/splits/$filename/"""
         try:
+            print(f"DEBUG: Raw filename received: {filename}")
+            
             # URL decode the filename to handle encoded characters like %2F
             decoded_filename = urllib.parse.unquote(filename)
-            splits_path = os.path.join(projects_dir, project_name, 'splits', decoded_filename)
-            splits = []
+            print(f"DEBUG: URL-decoded filename: {decoded_filename}")
             
-            print(f"DEBUG: Original filename: {filename}")
-            print(f"DEBUG: Decoded filename: {decoded_filename}")
+            splits_path = os.path.join(projects_dir, project_name, 'splits', decoded_filename)
             print(f"DEBUG: Looking for splits in: {splits_path}")
             print(f"DEBUG: Path exists: {os.path.exists(splits_path)}")
+            
+            splits = []
             
             if os.path.exists(splits_path):
                 print(f"DEBUG: Directory contents: {os.listdir(splits_path)}")
