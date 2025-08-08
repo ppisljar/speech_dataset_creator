@@ -66,11 +66,15 @@ def process_file_background(project_name, filename, file_path, projects_dir, pro
 def create_split_routes(projects_dir, processing_status):
     """Create and return the split blueprint with injected dependencies"""
     
+    @split_bp.route('/api/projects/<project_name>/splits/', defaults={'filename': None}, methods=['GET'])
     @split_bp.route('/api/projects/<project_name>/splits/<path:filename>', methods=['GET'])
     def get_splits(project_name, filename):
         """List all mp3/wav files under projects/$project/splits/$filename/"""
         try:
             print(f"DEBUG: Raw filename received: {filename}")
+            
+            if filename is None:
+                return jsonify({'error': 'Filename is required'}), 400
             
             # URL decode the filename to handle encoded characters like %2F
             decoded_filename = urllib.parse.unquote(filename)
