@@ -216,7 +216,7 @@ def _calculate_similarity_score(original, new):
 
 def validate_project(project_name, delete_bad=False, score_threshold=85):
     """
-    Validate all segment JSON files in a project.
+    Validate all segments in a project by looking at the generated segments folder.
     
     Args:
         project_name (str): Name of the project.
@@ -224,43 +224,43 @@ def validate_project(project_name, delete_bad=False, score_threshold=85):
         score_threshold (int): Minimum score threshold.
         
     Returns:
-        dict: Dictionary with segment file paths as keys and bad segments as values.
+        dict: Dictionary with speaker folders as keys and bad segments as values.
     """
-    project_dir = os.path.join('projects', project_name, 'splits')
+    project_segments_dir = os.path.join('projects', project_name, 'audio')
     
-    if not os.path.exists(project_dir):
-        print(f"Project directory not found: {project_dir}")
+    if not os.path.exists(project_segments_dir):
+        print(f"Project segments directory not found: {project_segments_dir}")
         return {}
     
-    # Find all *_segments.json files
-    segment_files = []
-    for root, dirs, files in os.walk(project_dir):
-        for file in files:
-            if file.endswith('_segments.json'):
-                segment_files.append(os.path.join(root, file))
+    # Find all speaker folders
+    speaker_folders = []
+    for item in os.listdir(project_segments_dir):
+        item_path = os.path.join(project_segments_dir, item)
+        if os.path.isdir(item_path):
+            speaker_folders.append(item_path)
     
-    if not segment_files:
-        print(f"No segment JSON files found in project: {project_name}")
+    if not speaker_folders:
+        print(f"No speaker folders found in project: {project_name}")
         return {}
     
-    print(f"Found {len(segment_files)} segment files in project '{project_name}':")
-    for segment_file in segment_files:
-        print(f"  {segment_file}")
+    print(f"Found {len(speaker_folders)} speaker folders in project '{project_name}':")
+    for speaker_folder in speaker_folders:
+        print(f"  {speaker_folder}")
     
     all_results = {}
     
-    for segment_file in segment_files:
-        print(f"\n--- Validating: {segment_file} ---")
+    for speaker_folder in speaker_folders:
+        speaker_name = os.path.basename(speaker_folder)
+        print(f"\n--- Validating speaker: {speaker_name} ---")
         
-        bad_segments = validate_transcription(segment_file, 
-                                            delete_bad=delete_bad,
-                                            score_threshold=score_threshold)
+        bad_segments = validate_speaker_segments(speaker_folder, 
+                                               delete_bad=delete_bad,
+                                               score_threshold=score_threshold)
         
-        all_results[segment_file] = bad_segments
+        all_results[speaker_folder] = bad_segments
         
-        # Save bad segments to JSON file in the same directory as the segment file
-        segment_dir = os.path.dirname(segment_file)
-        output_file = os.path.join(segment_dir, 'bad_segments.json')
+        # Save bad segments to JSON file in the speaker folder
+        output_file = os.path.join(speaker_folder, 'bad_segments.json')
         
         try:
             with open(output_file, 'w', encoding='utf-8') as f:
@@ -271,12 +271,205 @@ def validate_project(project_name, delete_bad=False, score_threshold=85):
     
     # Print summary
     total_bad = sum(len(bad_segments) for bad_segments in all_results.values())
+    total_segments = sum(len(os.listdir(folder)) // 2 for folder in speaker_folders if os.path.exists(folder))
     print(f"\n=== Project Validation Summary ===")
     print(f"Project: {project_name}")
-    print(f"Total segment files processed: {len(segment_files)}")
+    print(f"Speaker folders processed: {len(speaker_folders)}")
+    print(f"Total segments processed: {total_segments}")
     print(f"Total bad segments found: {total_bad}")
     
     return all_results
+
+
+def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85):
+    """
+    Validate all segments in a speaker folder.
+    
+    Args:
+        speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
+        delete_bad (bool): Whether to delete bad segment files.
+        score_threshold (int): Minimum score threshold.
+        
+    Returns:
+        list: List of bad segments with their scores.
+    """
+    if not os.path.exists(speaker_folder):
+        print(f"Speaker folder not found: {speaker_folder}")
+        return []
+
+    # Find all .wav files in the speaker folder
+    wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+    
+    if not wav_files:
+        print(f"No .wav files found in speaker folder: {speaker_folder}")
+        return []
+
+    bad_segments = []
+    
+    for i, wav_filename in enumerate(wav_files):
+        try:
+            # Get file paths
+            wav_file = os.path.join(speaker_folder, wav_filename)
+            txt_file = wav_file.replace('.wav', '.txt')
+            
+            if not os.path.exists(txt_file):
+                print(f"Text file not found for {wav_filename}: {txt_file}")
+                continue
+
+            # Read the existing transcription
+            with open(txt_file, 'r', encoding='utf-8') as f:
+                original_transcription = f.read().strip()
+
+            # Trim silence from audio file
+            trimmed_audio_file = _trim_silence(wav_file)
+            
+            # Transcribe the trimmed audio
+            try:
+                new_transcription = transcribe_audio(trimmed_audio_file)
+                if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
+                    new_transcription = new_transcription['transcription']
+            except Exception as e:
+                print(f"Error transcribing {trimmed_audio_file}: {e}")
+                continue
+            
+            # Calculate similarity score
+            score = _calculate_similarity_score(original_transcription, new_transcription)
+            
+            # Check if segment is bad
+            if score < score_threshold:
+                bad_segment = {
+                    'filename': wav_filename,
+                    'score': score,
+                    'original_transcription': original_transcription,
+                    'new_transcription': new_transcription,
+                    'speaker_folder': speaker_folder
+                }
+                bad_segments.append(bad_segment)
+                
+                print(f"Bad segment found: {wav_filename} (score: {score})")
+                print(f"  Original: '{original_transcription}'")
+                print(f"  New: '{new_transcription}'")
+                
+                # Delete bad segment files if requested
+                if delete_bad:
+                    try:
+                        os.remove(wav_file)
+                        os.remove(txt_file)
+                        print(f"  Deleted: {wav_file} and {txt_file}")
+                    except Exception as e:
+                        print(f"  Error deleting files: {e}")
+            else:
+                print(f"Good segment: {wav_filename} (score: {score})")
+                
+            # Clean up trimmed file if it's different from original
+            if trimmed_audio_file != wav_file and os.path.exists(trimmed_audio_file):
+                os.remove(trimmed_audio_file)
+                
+        except Exception as e:
+            print(f"Error processing segment {wav_filename}: {e}")
+            continue
+
+    return bad_segments
+
+
+def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
+    """
+    Validate the segment JSON against the audio file transcriptions.
+    
+    Args:
+        segment_json (str): Path to the segment JSON file.
+        delete_bad (bool): Whether to delete bad segment files.
+        score_threshold (int): Minimum score threshold (default: 85).
+
+    Returns:
+        list: List of bad segments with their scores.
+    """
+
+    # for each segment:
+    # - trim anything more than 5ms of silence (complete silence) from start/end of segment (inplace)
+    # - translate file using soniox (m4_transcribe_file) and check if transcription matches the transcription in the segment file. (expect segments were "build", so each segment has the audio and txt file in appropriate place)
+    # --- calculate score (complete match = 100, complete mismatch = 0, if just special chars differ (comma, .!? ...) it should get score from 90-99, if text differs it should get score from 0 - 90 (depending how muchj difference))
+    # - if score < 85 mark segment as bad, optionally (depending on args) delete the bad segment file and its matching .txt file
+    # return list of bad segments
+
+    if not os.path.exists(segment_json):
+        print(f"Segment JSON file not found: {segment_json}")
+        return []
+
+    with open(segment_json, 'r', encoding='utf-8') as f:
+        segments = json.load(f)
+
+    bad_segments = []
+    segment_dir = os.path.dirname(segment_json)
+    
+    for i, segment in enumerate(segments):
+        try:
+            # Get segment file paths
+            segment_audio_file = os.path.join(segment_dir, segment['filename'])
+            segment_text_file = segment_audio_file.replace('.wav', '.txt')
+            
+            if not os.path.exists(segment_audio_file):
+                print(f"Audio file not found: {segment_audio_file}")
+                continue
+                
+            if not os.path.exists(segment_text_file):
+                print(f"Text file not found: {segment_text_file}")
+                continue
+
+            # Read the existing transcription
+            with open(segment_text_file, 'r', encoding='utf-8') as f:
+                original_transcription = f.read().strip()
+
+            # Trim silence from audio file
+            trimmed_audio_file = _trim_silence(segment_audio_file)
+            
+            # Transcribe the trimmed audio
+            try:
+                new_transcription = transcribe_audio(trimmed_audio_file)
+                if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
+                    new_transcription = new_transcription['transcription']
+            except Exception as e:
+                print(f"Error transcribing {trimmed_audio_file}: {e}")
+                continue
+            
+            # Calculate similarity score
+            score = _calculate_similarity_score(original_transcription, new_transcription)
+            
+            # Check if segment is bad
+            if score < score_threshold:
+                bad_segment = {
+                    'index': i,
+                    'filename': segment['filename'],
+                    'score': score,
+                    'original_transcription': original_transcription,
+                    'new_transcription': new_transcription
+                }
+                bad_segments.append(bad_segment)
+                
+                print(f"Bad segment found: {segment['filename']} (score: {score})")
+                print(f"  Original: '{original_transcription}'")
+                print(f"  New: '{new_transcription}'")
+                
+                # Delete bad segment files if requested
+                if delete_bad:
+                    try:
+                        os.remove(segment_audio_file)
+                        os.remove(segment_text_file)
+                        print(f"  Deleted: {segment_audio_file} and {segment_text_file}")
+                    except Exception as e:
+                        print(f"  Error deleting files: {e}")
+            else:
+                print(f"Good segment: {segment['filename']} (score: {score})")
+                
+            # Clean up trimmed file if it's different from original
+            if trimmed_audio_file != segment_audio_file and os.path.exists(trimmed_audio_file):
+                os.remove(trimmed_audio_file)
+                
+        except Exception as e:
+            print(f"Error processing segment {i}: {e}")
+            continue
+
+    return bad_segments
 
 
 def main():
