@@ -9,6 +9,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from pathlib import Path
 from run import process_file
+import urllib.parse
 
 split_bp = Blueprint('split', __name__)
 
@@ -69,45 +70,59 @@ def create_split_routes(projects_dir, processing_status):
     def get_splits(project_name, filename):
         """List all mp3/wav files under projects/$project/splits/$filename/"""
         try:
-            splits_path = os.path.join(projects_dir, project_name, 'splits', filename)
+            # URL decode the filename to handle encoded characters like %2F
+            decoded_filename = urllib.parse.unquote(filename)
+            splits_path = os.path.join(projects_dir, project_name, 'splits', decoded_filename)
             splits = []
             
+            print(f"DEBUG: Original filename: {filename}")
+            print(f"DEBUG: Decoded filename: {decoded_filename}")
+            print(f"DEBUG: Looking for splits in: {splits_path}")
+            print(f"DEBUG: Path exists: {os.path.exists(splits_path)}")
+            
             if os.path.exists(splits_path):
+                print(f"DEBUG: Directory contents: {os.listdir(splits_path)}")
                 for item in os.listdir(splits_path):
                     if item.lower().endswith(('.mp3', '.wav')):
                         splits.append(item)
+            else:
+                print(f"DEBUG: Directory does not exist: {splits_path}")
             
+            print(f"DEBUG: Found splits: {splits}")
             return jsonify(splits)
         except Exception as e:
+            print(f"DEBUG: Exception occurred: {str(e)}")
             return jsonify({'error': str(e)}), 500
 
     @split_bp.route('/api/projects/<project_name>/splits/<path:filename>/refresh', methods=['POST'])
     def refresh_split_file(project_name, filename):
         """Refresh a split file by reprocessing it"""
         try:
+            # URL decode the filename to handle encoded characters like %2F
+            decoded_filename = urllib.parse.unquote(filename)
             # Look for the file in the raw directory
-            raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{filename}")
+            raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{decoded_filename}")
             if not os.path.exists(raw_file_path):
                 # Try with .wav extension
-                raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{filename}.wav")
+                raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{decoded_filename}.wav")
                 if not os.path.exists(raw_file_path):
                     return jsonify({'error': 'Source file not found in raw directory'}), 404
 
             # Check if already processing
-            process_key = f"{project_name}_{filename}"
+            process_key = f"{project_name}_{decoded_filename}"
             if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
                 return jsonify({'error': 'File is already being processed'}), 409
 
             # Start background processing
             thread = threading.Thread(
                 target=process_file_background,
-                args=(project_name, filename, raw_file_path, projects_dir, processing_status)
+                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status)
             )
             thread.daemon = True
             thread.start()
 
             return jsonify({
-                'message': f'Processing started for {filename}',
+                'message': f'Processing started for {decoded_filename}',
                 'processing_key': process_key
             }), 200
         except Exception as e:
@@ -117,29 +132,31 @@ def create_split_routes(projects_dir, processing_status):
     def build_split_file(project_name, filename):
         """Build splits"""
         try:
+            # URL decode the filename to handle encoded characters like %2F
+            decoded_filename = urllib.parse.unquote(filename)
             # Look for the file in the raw directory
-            raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{filename}")
+            raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{decoded_filename}")
             if not os.path.exists(raw_file_path):
                 # Try with .wav extension
-                raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{filename}.wav")
+                raw_file_path = os.path.join(projects_dir, project_name, 'raw', f"{decoded_filename}.wav")
                 if not os.path.exists(raw_file_path):
                     return jsonify({'error': 'Source file not found in raw directory'}), 404
 
             # Check if already processing
-            process_key = f"{project_name}_{filename}"
+            process_key = f"{project_name}_{decoded_filename}"
             if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
                 return jsonify({'error': 'File is already being processed'}), 409
 
             # Start background processing
             thread = threading.Thread(
                 target=process_file_background,
-                args=(project_name, filename, raw_file_path, projects_dir, processing_status, False, True)
+                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, False, True)
             )
             thread.daemon = True
             thread.start()
 
             return jsonify({
-                'message': f'Processing started for {filename}',
+                'message': f'Processing started for {decoded_filename}',
                 'processing_key': process_key
             }), 200
         except Exception as e:
@@ -201,7 +218,9 @@ def create_split_routes(projects_dir, processing_status):
     def get_split_file(project_name, splitnam, filename):
         """Get or update a specific split file"""
         try:
-            split_file_path = os.path.join(projects_dir, project_name, 'splits', splitnam, filename)
+            # URL decode the splitnam to handle encoded characters like %2F
+            decoded_splitnam = urllib.parse.unquote(splitnam)
+            split_file_path = os.path.join(projects_dir, project_name, 'splits', decoded_splitnam, filename)
             
             if request.method == 'GET':
                 if not os.path.exists(split_file_path):
