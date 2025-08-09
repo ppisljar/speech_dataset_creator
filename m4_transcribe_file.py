@@ -33,7 +33,7 @@ def poll_until_complete(transcription_id):
         time.sleep(1)
 
 
-def transcribe_file(input_file, output_file="output.json"):
+def transcribe_file(input_file, output_file="output.json", skip_file_output=False):
     try:
         print("Starting file upload...")
 
@@ -69,10 +69,11 @@ def transcribe_file(input_file, output_file="output.json"):
         res.raise_for_status()
         data = res.json()
 
-        # ✅ Store full JSON to file
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"Full transcription JSON saved to {output_file}")
+        # ✅ Store full JSON to file (unless skipped)
+        if not skip_file_output:
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Full transcription JSON saved to {output_file}")
 
         # Delete the transcription
         res = session.delete(f"{api_base}/v1/transcriptions/{transcription_id}")
@@ -82,10 +83,15 @@ def transcribe_file(input_file, output_file="output.json"):
         res = session.delete(f"{api_base}/v1/files/{file_id}")
         res.raise_for_status()
 
+        # Return data if requested
+        return data
+
     except requests.exceptions.RequestException as e:
         print(f"An error occurred during the HTTP request: {e}")
+        return None
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+        return None
  
  
 if __name__ == "__main__":

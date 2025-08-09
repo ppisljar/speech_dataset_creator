@@ -68,9 +68,9 @@ def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
             
             # Transcribe the trimmed audio
             try:
-                new_transcription = transcribe_file(trimmed_audio_file)
-                if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
-                    new_transcription = new_transcription['transcription']
+                new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
+                if isinstance(new_transcription, dict) and 'transcript' in new_transcription:
+                    new_transcription = new_transcription['transcript']
             except Exception as e:
                 print(f"Error transcribing {trimmed_audio_file}: {e}")
                 continue
@@ -325,9 +325,9 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
             
             # Transcribe the trimmed audio
             try:
-                new_transcription = transcribe_audio(trimmed_audio_file)
-                if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
-                    new_transcription = new_transcription['transcription']
+                new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
+                if isinstance(new_transcription, dict) and 'text' in new_transcription:
+                    new_transcription = new_transcription['text']
             except Exception as e:
                 print(f"Error transcribing {trimmed_audio_file}: {e}")
                 continue
@@ -425,9 +425,9 @@ def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
             
             # Transcribe the trimmed audio
             try:
-                new_transcription = transcribe_audio(trimmed_audio_file)
-                if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
-                    new_transcription = new_transcription['transcription']
+                new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
+                if isinstance(new_transcription, dict) and 'transcript' in new_transcription:
+                    new_transcription = new_transcription['transcript']
             except Exception as e:
                 print(f"Error transcribing {trimmed_audio_file}: {e}")
                 continue
