@@ -13,7 +13,7 @@ from pathlib import Path
 import librosa
 import soundfile as sf
 import numpy as np
-from m4_transcribe_file import transcribe_audio
+from m4_transcribe_file import transcribe_file
 
 def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
     """
@@ -68,7 +68,7 @@ def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
             
             # Transcribe the trimmed audio
             try:
-                new_transcription = transcribe_audio(trimmed_audio_file)
+                new_transcription = transcribe_file(trimmed_audio_file)
                 if isinstance(new_transcription, dict) and 'transcription' in new_transcription:
                     new_transcription = new_transcription['transcription']
             except Exception as e:
