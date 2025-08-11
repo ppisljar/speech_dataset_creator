@@ -8,6 +8,8 @@
     <!-- CSS Files -->
     <link rel="stylesheet" href="web/css/main.css">
     <link rel="stylesheet" href="web/components/data-viewer/data-viewer.css">
+    <!-- NProgress CSS for HTTP request progress bar -->
+    <link rel="stylesheet" href="https://unpkg.com/nprogress@0.2.0/nprogress.css">
 </head>
 <body>
     <div class="container">
@@ -103,12 +105,52 @@
     </div>
 
     <!-- JavaScript Files -->
+    <script src="https://unpkg.com/nprogress@0.2.0/nprogress.js"></script>
     <script src="web/js/main.js"></script>
     <script src="web/js/audio-controller.js"></script>
     <script src="web/js/segments-manager.js"></script>
     <script src="web/components/data-viewer/data-viewer.js"></script>
     
     <script>
+        // Configure NProgress
+        NProgress.configure({ 
+            showSpinner: false,
+            minimum: 0.08,
+            easing: 'ease',
+            speed: 200
+        });
+
+        // Track active HTTP requests
+        let activeRequests = 0;
+
+        // Override fetch to automatically show/hide progress bar
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+            // Start progress if this is the first request
+            if (activeRequests === 0) {
+                NProgress.start();
+            }
+            activeRequests++;
+
+            return originalFetch.apply(this, args)
+                .then(response => {
+                    activeRequests--;
+                    // Complete progress if this was the last request
+                    if (activeRequests === 0) {
+                        NProgress.done();
+                    }
+                    return response;
+                })
+                .catch(error => {
+                    activeRequests--;
+                    // Complete progress even on error
+                    if (activeRequests === 0) {
+                        NProgress.done();
+                    }
+                    throw error;
+                });
+        };
+
         // Initialize the data viewer component when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
             // Load the data viewer HTML into the component container

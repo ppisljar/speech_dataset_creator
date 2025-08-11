@@ -40,7 +40,7 @@
 .waveform-canvas-container {
     position: relative;
     width: 100%;
-    height: 500px;
+    height: 520px;
     border: 1px solid #ddd;
     background: #fff;
 }
@@ -154,6 +154,14 @@
 
 .legend-pyannote {
     border-color: green;
+}
+
+.legend-wespeaker {
+    border-color: teal;
+}
+
+.legend-3dspeaker {
+    border-color: darkblue;
 }
 
 .legend-segments {

@@ -7,6 +7,8 @@ class DataViewer {
             silences: [],
             transcriptions: [],
             pyannote: [],
+            wespeaker: [],
+            '3dspeaker': [],
             segments: [],
             duration: 0,
             sampleRate: 44100,
@@ -53,10 +55,12 @@ class DataViewer {
             podcastManager.showMessage('Loading audio data and annotations...');
             
             // Load all data types using the selected split name
-            const [silencesRes, transcriptionsRes, pyannoteRes, segmentsRes, audioRes] = await Promise.all([
+            const [silencesRes, transcriptionsRes, pyannoteRes, wespeakerRes, threeDSpeakerRes, segmentsRes, audioRes] = await Promise.all([
                 fetch(`/api/projects/${project}/splits/${filename}/${splitname}_silences.json`).catch(() => ({ok: false})),
                 fetch(`/api/projects/${project}/splits/${filename}/${splitname}_transcription.json`).catch(() => ({ok: false})),
                 fetch(`/api/projects/${project}/splits/${filename}/${splitname}_pyannote.csv`).catch(() => ({ok: false})),
+                fetch(`/api/projects/${project}/splits/${filename}/${splitname}_wespeaker.csv`).catch(() => ({ok: false})),
+                fetch(`/api/projects/${project}/splits/${filename}/${splitname}_3dspeaker.csv`).catch(() => ({ok: false})),
                 fetch(`/api/projects/${project}/splits/${filename}/${splitname}_segments.json`).catch(() => ({ok: false})),
                 fetch(`/api/projects/${project}/splits/${filename}/${splitname}`).catch(() => ({ok: false}))
             ]);
@@ -90,6 +94,14 @@ class DataViewer {
             if (pyannoteRes.ok) {
                 const pyannoteText = await pyannoteRes.text();
                 this.waveformData.pyannote = this.parsePyannoteCSV(pyannoteText);
+            }
+            if (wespeakerRes.ok) {
+                const wespeakerText = await wespeakerRes.text();
+                this.waveformData.wespeaker = this.parsePyannoteCSV(wespeakerText);
+            }
+            if (threeDSpeakerRes.ok) {
+                const threeDSpeakerText = await threeDSpeakerRes.text();
+                this.waveformData['3dspeaker'] = this.parsePyannoteCSV(threeDSpeakerText);
             }
             if (segmentsRes.ok) {
                 const rawSegments = await segmentsRes.json();
@@ -235,7 +247,8 @@ class DataViewer {
         
         // Check all annotation types for maximum time
         [...this.waveformData.silences, ...this.waveformData.transcriptions, 
-         ...this.waveformData.pyannote, ...this.waveformData.segments].forEach(item => {
+         ...this.waveformData.pyannote, ...this.waveformData.wespeaker, 
+         ...this.waveformData['3dspeaker'], ...this.waveformData.segments].forEach(item => {
             if (item.end && item.end > maxTime) maxTime = item.end;
             if (item.start && item.start > maxTime) maxTime = item.start;
         });
@@ -250,9 +263,9 @@ class DataViewer {
         // Set canvas size to container width
         this.waveformData.canvasWidth = container.clientWidth;
         canvas.width = this.waveformData.canvasWidth;
-        canvas.height = 480;
+        canvas.height = 520; // Increased from 480 to accommodate two new tracks
         document.getElementById('annotationsCanvas').width = this.waveformData.canvasWidth;
-        document.getElementById('annotationsCanvas').height = 480;
+        document.getElementById('annotationsCanvas').height = 520;
         
         // Initialize timeline scrollbar
         this.initializeTimelineScrollbar();
@@ -554,9 +567,11 @@ class DataViewer {
         const tracks = {
             silences: waveformHeight - 20,      // First track: 380-400px
             pyannote: waveformHeight,           // Second track: 400-420px  
-            segments: waveformHeight + 20,      // Third track: 420-440px
-            subsegments: waveformHeight + 40,   // Fourth track: 440-460px
-            transcriptions: waveformHeight + 60 // Fifth track: 460-480px
+            wespeaker: waveformHeight + 20,     // Third track: 420-440px
+            '3dspeaker': waveformHeight + 40,   // Fourth track: 440-460px
+            segments: waveformHeight + 60,      // Fifth track: 460-480px
+            subsegments: waveformHeight + 80,   // Sixth track: 480-500px
+            transcriptions: waveformHeight + 100 // Seventh track: 500-520px
         };
         
         // Draw track labels on the left
@@ -565,6 +580,8 @@ class DataViewer {
         ctx.fillStyle = '#333';
         ctx.fillText('Silences', 2, tracks.silences + 14);
         ctx.fillText('Pyannote', 2, tracks.pyannote + 14);
+        ctx.fillText('WeSpeaker', 2, tracks.wespeaker + 14);
+        ctx.fillText('3DSpeaker', 2, tracks['3dspeaker'] + 14);
         ctx.fillText('Segments', 2, tracks.segments + 14);
         ctx.fillText('Subsegments', 2, tracks.subsegments + 14);
         ctx.fillText('Transcriptions', 2, tracks.transcriptions + 14);
@@ -602,7 +619,39 @@ class DataViewer {
             }
         });
         
-        // Draw segments (red boxes) in third track
+        // Draw wespeaker (teal boxes) in third track
+        ctx.strokeStyle = 'teal';
+        ctx.fillStyle = 'rgba(0, 128, 128, 0.3)';
+        this.waveformData.wespeaker.forEach(item => {
+            if (overlapsView(item.start, item.end)) {
+                const startX = timeToX(item.start);
+                const endX = timeToX(item.end);
+                const x = Math.max(0, startX);
+                const width = Math.min(this.waveformData.canvasWidth, endX) - x;
+                if (width > 0) {
+                    ctx.fillRect(x, tracks.wespeaker, width, trackHeight);
+                    ctx.strokeRect(x, tracks.wespeaker, width, trackHeight);
+                }
+            }
+        });
+        
+        // Draw 3dspeaker (dark blue boxes) in fourth track
+        ctx.strokeStyle = 'darkblue';
+        ctx.fillStyle = 'rgba(0, 0, 139, 0.3)';
+        this.waveformData['3dspeaker'].forEach(item => {
+            if (overlapsView(item.start, item.end)) {
+                const startX = timeToX(item.start);
+                const endX = timeToX(item.end);
+                const x = Math.max(0, startX);
+                const width = Math.min(this.waveformData.canvasWidth, endX) - x;
+                if (width > 0) {
+                    ctx.fillRect(x, tracks['3dspeaker'], width, trackHeight);
+                    ctx.strokeRect(x, tracks['3dspeaker'], width, trackHeight);
+                }
+            }
+        });
+        
+        // Draw segments (red boxes) in fifth track
         ctx.strokeStyle = 'red';
         ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
         ctx.font = '10px Arial';
@@ -626,7 +675,7 @@ class DataViewer {
             }
         });
         
-        // Draw subsegments (purple boxes) in fourth track
+        // Draw subsegments (purple boxes) in sixth track
         ctx.strokeStyle = 'purple';
         ctx.fillStyle = 'rgba(128, 0, 128, 0.3)';
         ctx.font = '8px Arial';
@@ -654,7 +703,7 @@ class DataViewer {
             }
         });
         
-        // Draw transcriptions (orange boxes) in fifth track with punctuation-based border styles
+        // Draw transcriptions (orange boxes) in seventh track with punctuation-based border styles
         ctx.fillStyle = 'rgba(255, 165, 0, 0.3)';
         this.waveformData.transcriptions.forEach(trans => {
             if (overlapsView(trans.start, trans.end)) {
