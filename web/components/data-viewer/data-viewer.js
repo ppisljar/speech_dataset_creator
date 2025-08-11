@@ -791,10 +791,26 @@ class DataViewer {
             }, 0) : 0);
         }, 0);
 
+        // Calculate total length of good segments (main segments with status 'good')
+        const goodMainSegmentLength = this.waveformData.segments.reduce((acc, segment) => {
+            const status = segment.status !== undefined ? segment.status : (segment.confidence > 0.6 ? 'good' : 'bad');
+            return acc + (status === 'good' ? (segment.end - segment.start) : 0);
+        }, 0);
+
+        // Calculate total length of good subsegments
+        const goodSubSegmentLength = this.waveformData.segments.reduce((acc, segment) => {
+            return acc + (segment.subs && segment.subs.length > 1 ? segment.subs.reduce((subAcc, sub) => {
+                const status = sub.status !== undefined ? sub.status : (sub.confidence > 0.6 ? 'good' : 'bad');
+                return subAcc + (status === 'good' ? (sub.end - sub.start) : 0);
+            }, 0) : 0);
+        }, 0);
+
         let html = `
             <h3>Segments (${this.waveformData.segments.length}) Subsegments (${subSegmentCount})</h3>
-            <h5>Main Segment Length: ${mainSegmentLength/60} min</h5>
-            <h5>Sub Segment Length: ${subSegmentLength/60} min</h5>
+            <h5>Main Segment Length: ${(mainSegmentLength/60).toFixed(2)} min</h5>
+            <h5>Sub Segment Length: ${(subSegmentLength/60).toFixed(2)} min</h5>
+            <h5>Good Main Segment Length: ${(goodMainSegmentLength/60).toFixed(2)} min</h5>
+            <h5>Good Sub Segment Length: ${(goodSubSegmentLength/60).toFixed(2)} min</h5>
             <div class="segments-actions">
                 <div>
                     <button onclick="dataViewer.saveSegments()">Save Changes</button>
@@ -843,21 +859,22 @@ class DataViewer {
                     </div>
                 </div>
             </div>
-            <table class="segments-table">
-                <thead>
-                    <tr style="background-color: #f0f0f0;">
-                        <th>ID</th>
-                        <th>Status</th>
-                        <th>Speaker</th>
-                        <th>Text</th>
-                        <th>Start (ms)</th>
-                        <th>End (ms)</th>
-                        <th>Duration</th>
-                        <th>Confidence</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="segmentsTableBody">
+            <div class="segments-table-container" id="segmentsTableContainer">
+                <table class="segments-table">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th>ID</th>
+                            <th>Status</th>
+                            <th>Speaker</th>
+                            <th>Text</th>
+                            <th>Start (ms)</th>
+                            <th>End (ms)</th>
+                            <th>Duration</th>
+                            <th>Confidence</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="segmentsTableBody">
         `;
 
         this.waveformData.segments.forEach((segment, index) => {
@@ -985,6 +1002,7 @@ class DataViewer {
         html += `
                 </tbody>
             </table>
+            </div>
             <div class="segments-legend">
                 <p><strong>Legend:</strong> ▶ = Play segment/subsegment, ↗ = Seek to segment/subsegment, ✖ = Delete segment</p>
                 <p><strong>Status:</strong> Good segments will be included in final dataset, Bad segments will be excluded</p>
@@ -993,6 +1011,9 @@ class DataViewer {
         `;
 
         dataViewer.innerHTML = html;
+        
+        // Setup scroll synchronization after the table is rendered
+        this.setupScrollSynchronization();
         
         // Populate speaker dropdown with unique speakers
         this.populateSpeakerFilter();
@@ -1167,6 +1188,11 @@ class DataViewer {
         });
 
         tableBody.innerHTML = tableHtml;
+        
+        // Re-setup scroll synchronization after table content changes
+        setTimeout(() => {
+            this.syncTableFromWaveform();
+        }, 100);
     }
 
     passesFilters(item, startMs, endMs, duration) {
@@ -1325,6 +1351,119 @@ class DataViewer {
 
     saveSegments() {
         this.segmentsManager.saveSegments();
+    }
+
+    // Scroll synchronization methods
+    setupScrollSynchronization() {
+        const tableContainer = document.getElementById('segmentsTableContainer');
+        if (!tableContainer) return;
+
+        // Add scroll listener to the table container
+        tableContainer.addEventListener('scroll', () => {
+            this.syncWaveformFromTable();
+        });
+
+        // Also sync when waveform view changes
+        this.originalDrawWaveform = this.drawWaveform;
+        this.drawWaveform = () => {
+            this.originalDrawWaveform();
+            this.syncTableFromWaveform();
+        };
+    }
+
+    syncWaveformFromTable() {
+        const tableContainer = document.getElementById('segmentsTableContainer');
+        if (!tableContainer) return;
+
+        // Get the middle visible segment in the table
+        const containerRect = tableContainer.getBoundingClientRect();
+        const containerMiddleY = containerRect.top + containerRect.height / 2;
+        
+        // Find all segment rows that are currently visible
+        const segmentRows = tableContainer.querySelectorAll('.segment-row');
+        let middleSegmentIndex = -1;
+        let middleSegmentTime = 0;
+
+        for (let i = 0; i < segmentRows.length; i++) {
+            const row = segmentRows[i];
+            const rowRect = row.getBoundingClientRect();
+            
+            // Check if this row is near the middle of the visible area
+            if (rowRect.top <= containerMiddleY && rowRect.bottom >= containerMiddleY) {
+                // Extract segment index from row ID
+                const rowId = row.id; // format: "segment-row-{index}"
+                const match = rowId.match(/segment-row-(\d+)/);
+                if (match) {
+                    middleSegmentIndex = parseInt(match[1]);
+                    break;
+                }
+            }
+        }
+
+        // If we found a middle segment, center the waveform on it
+        if (middleSegmentIndex >= 0 && middleSegmentIndex < this.waveformData.segments.length) {
+            const segment = this.waveformData.segments[middleSegmentIndex];
+            const segmentMiddleTime = (segment.start + segment.end) / 2;
+            
+            // Calculate the view duration and center on the segment
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const newViewStart = Math.max(0, Math.min(
+                segmentMiddleTime - viewDuration / 2,
+                this.waveformData.duration - viewDuration
+            ));
+            
+            // Only update if there's a significant change to avoid infinite loops
+            if (Math.abs(newViewStart - this.waveformData.viewStart) > 0.1) {
+                this.waveformData.viewStart = newViewStart;
+                this.originalDrawWaveform(); // Use original to avoid recursion
+                this.updateTimeDisplay();
+            }
+        }
+    }
+
+    syncTableFromWaveform() {
+        const tableContainer = document.getElementById('segmentsTableContainer');
+        if (!tableContainer) return;
+
+        // Get the current waveform view center time
+        const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+        const waveformCenterTime = this.waveformData.viewStart + viewDuration / 2;
+
+        // Find the segment that contains or is closest to the waveform center
+        let targetSegmentIndex = -1;
+        let minDistance = Infinity;
+
+        for (let i = 0; i < this.waveformData.segments.length; i++) {
+            const segment = this.waveformData.segments[i];
+            const segmentMiddleTime = (segment.start + segment.end) / 2;
+            const distance = Math.abs(segmentMiddleTime - waveformCenterTime);
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                targetSegmentIndex = i;
+            }
+        }
+
+        // Scroll the table to center the target segment
+        if (targetSegmentIndex >= 0) {
+            const targetRow = document.getElementById(`segment-row-${targetSegmentIndex}`);
+            if (targetRow) {
+                const containerRect = tableContainer.getBoundingClientRect();
+                const rowRect = targetRow.getBoundingClientRect();
+                const rowOffsetInContainer = targetRow.offsetTop - tableContainer.scrollTop;
+                
+                // Calculate the scroll position to center the row
+                const targetScrollTop = targetRow.offsetTop - (containerRect.height / 2) + (rowRect.height / 2);
+                
+                // Only scroll if the row is not already roughly centered
+                const currentRowCenter = rowOffsetInContainer + rowRect.height / 2;
+                const containerCenter = containerRect.height / 2;
+                
+                if (Math.abs(currentRowCenter - containerCenter) > 50) { // 50px tolerance
+                    tableContainer.scrollTop = Math.max(0, targetScrollTop);
+                }
+            }
+        }
     }
 }
 

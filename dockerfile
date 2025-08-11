@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get install -y libsox libsox-dev
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
