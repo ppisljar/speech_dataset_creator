@@ -6,3 +6,5 @@ flask
 flask-cors
 werkzeug
 dotenv
+modelscope
+git+https://github.com/wenet-e2e/wespeaker.git
