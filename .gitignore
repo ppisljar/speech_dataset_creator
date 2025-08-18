@@ -6,6 +6,7 @@ out/
 output/
 checkpoints/
 raw/
+projects
 .env
 __pycache__
 .DS_Store
