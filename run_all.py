@@ -6,7 +6,7 @@ This script will automatically find all audio files in the specified project's
 raw directory and process them through the complete pipeline.
 
 Usage:
-    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean]
+    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean] [--meta]
 
 Arguments:
     project_name: Name of the project to process
@@ -14,6 +14,7 @@ Arguments:
     --segment: Enable segmentation (optional)
     --validate: Run validation on the project's segments (optional)
     --clean: Remove files that fail validation (can be used alone if bad_segments.json exists) (optional)
+    --meta: Generate metadata file for the project after processing segments (optional)
 
 Examples:
     python run_all.py my_project
@@ -22,6 +23,7 @@ Examples:
     python run_all.py my_project --validate
     python run_all.py my_project --validate --clean
     python run_all.py my_project --clean
+    python run_all.py my_project --segment --meta
 """
 
 import os
@@ -30,6 +32,7 @@ import argparse
 from pathlib import Path
 from run import process_file
 from m7_validate import validate_project
+from m8_meta import generate_metadata
 
 def main():
     """Main function to process all files in a project."""
@@ -39,6 +42,7 @@ def main():
     parser.add_argument("--segment", action="store_true", help="Enable segmentation")
     parser.add_argument("--validate", action="store_true", help="Run validation on the project's segments")
     parser.add_argument("--clean", action="store_true", help="Remove files that fail validation (can be used alone if bad_segments.json exists)")
+    parser.add_argument("--meta", action="store_true", help="Generate metadata file for the project after processing segments")
     
     args = parser.parse_args()
    
@@ -83,6 +87,7 @@ def main():
     print(f"\nProcessing settings:")
     print(f"  Override existing files: {'Yes' if args.override else 'No'}")
     print(f"  Enable segmentation: {'Yes' if args.segment else 'No'}")
+    print(f"  Generate metadata: {'Yes' if args.meta else 'No'}")
     if args.validate:
         print(f"  Run validation: Yes")
         print(f"  Clean failed segments: {'Yes' if args.clean else 'No'}")
@@ -130,6 +135,7 @@ def main():
     print(f"Successfully processed: {success_count}")
     print(f"Failed: {len(failed_files)}")
 
+
     # Handle validation and/or cleaning
     if args.validate or args.clean:
         print("\n" + "=" * 60)
@@ -162,7 +168,19 @@ def main():
                 print("\nNo bad segments found to clean or cleaning failed.")
                 sys.exit(1)
         
-        return
+    
+    # Generate metadata if requested
+    if args.meta:
+        print("\n" + "=" * 60)
+        print(f"Generating metadata for project: {args.project_name}")
+        print("=" * 60)
+        
+        try:
+            metadata_file = os.path.join(splits_dir, "metadata.csv")
+            generate_metadata(splits_dir, metadata_file)
+            print(f"✓ Metadata file generated: {metadata_file}")
+        except Exception as e:
+            print(f"✗ Error generating metadata: {str(e)}")
     
     if failed_files:
         print(f"\nFailed files:")
