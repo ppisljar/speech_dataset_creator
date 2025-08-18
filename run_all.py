@@ -6,17 +6,22 @@ This script will automatically find all audio files in the specified project's
 raw directory and process them through the complete pipeline.
 
 Usage:
-    python run_all.py <project_name> [--override] [--segment]
+    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean]
 
 Arguments:
     project_name: Name of the project to process
     --override: Override existing output files (optional)
     --segment: Enable segmentation (optional)
+    --validate: Run validation on the project's segments (optional)
+    --clean: Remove files that fail validation (can be used alone if bad_segments.json exists) (optional)
 
 Examples:
     python run_all.py my_project
     python run_all.py my_project --override
     python run_all.py my_project --segment --override
+    python run_all.py my_project --validate
+    python run_all.py my_project --validate --clean
+    python run_all.py my_project --clean
 """
 
 import os
@@ -24,6 +29,7 @@ import sys
 import argparse
 from pathlib import Path
 from run import process_file
+from m7_validate import validate_project
 
 def main():
     """Main function to process all files in a project."""
@@ -31,8 +37,11 @@ def main():
     parser.add_argument("project_name", type=str, help="Name of the project to process")
     parser.add_argument("--override", action="store_true", help="Override existing output files")
     parser.add_argument("--segment", action="store_true", help="Enable segmentation")
+    parser.add_argument("--validate", action="store_true", help="Run validation on the project's segments")
+    parser.add_argument("--clean", action="store_true", help="Remove files that fail validation (can be used alone if bad_segments.json exists)")
     
     args = parser.parse_args()
+   
     
     # Base directory for projects
     projects_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'projects')
@@ -74,6 +83,11 @@ def main():
     print(f"\nProcessing settings:")
     print(f"  Override existing files: {'Yes' if args.override else 'No'}")
     print(f"  Enable segmentation: {'Yes' if args.segment else 'No'}")
+    if args.validate:
+        print(f"  Run validation: Yes")
+        print(f"  Clean failed segments: {'Yes' if args.clean else 'No'}")
+    elif args.clean:
+        print(f"  Clean existing bad segments: Yes")
     print()
     
     # Process each file
@@ -115,6 +129,40 @@ def main():
     print(f"Total files: {len(audio_files)}")
     print(f"Successfully processed: {success_count}")
     print(f"Failed: {len(failed_files)}")
+
+    # Handle validation and/or cleaning
+    if args.validate or args.clean:
+        print("\n" + "=" * 60)
+        
+        if args.validate:
+            print(f"Running validation for project: {args.project_name}")
+            if args.clean:
+                print("Files that fail validation will be removed.")
+            print("=" * 60)
+            
+            # Run validation with clean option if specified
+            validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=True)
+            
+            if validation_results:
+                print("\nValidation completed successfully!")
+            else:
+                print("\nValidation failed or no segments found to validate.")
+                sys.exit(1)
+                
+        elif args.clean:
+            print(f"Cleaning existing bad segments for project: {args.project_name}")
+            print("=" * 60)
+            
+            # Use validate_project with delete_bad=True and force_revalidate=False to clean existing bad segments
+            validation_results = validate_project(args.project_name, delete_bad=True, score_threshold=85, force_revalidate=False)
+            
+            if validation_results:
+                print("\nCleaning completed successfully!")
+            else:
+                print("\nNo bad segments found to clean or cleaning failed.")
+                sys.exit(1)
+        
+        return
     
     if failed_files:
         print(f"\nFailed files:")

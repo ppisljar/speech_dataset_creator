@@ -214,7 +214,7 @@ def _calculate_similarity_score(original, new):
     return int(similarity_ratio * 90)
 
 
-def validate_project(project_name, delete_bad=False, score_threshold=85):
+def validate_project(project_name, delete_bad=False, score_threshold=85, force_revalidate=False):
     """
     Validate all segments in a project by looking at the generated segments folder.
     
@@ -222,6 +222,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85):
         project_name (str): Name of the project.
         delete_bad (bool): Whether to delete bad segment files.
         score_threshold (int): Minimum score threshold.
+        force_revalidate (bool): Whether to ignore existing bad_segments.json files and revalidate.
         
     Returns:
         dict: Dictionary with speaker folders as keys and bad segments as values.
@@ -251,23 +252,55 @@ def validate_project(project_name, delete_bad=False, score_threshold=85):
     
     for speaker_folder in speaker_folders:
         speaker_name = os.path.basename(speaker_folder)
+        output_file = os.path.join(speaker_folder, 'bad_segments.json')
+        
+        # Check if we should use existing bad_segments.json file
+        if not force_revalidate and os.path.exists(output_file):
+            print(f"\n--- Using existing bad segments for speaker: {speaker_name} ---")
+            try:
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    bad_segments = json.load(f)
+                print(f"Loaded {len(bad_segments)} bad segments from existing file")
+                all_results[speaker_folder] = bad_segments
+                
+                # If delete_bad is True, clean the segments using the dedicated function
+                if delete_bad and bad_segments:
+                    clean_bad_segments_from_file(speaker_folder, output_file)
+                
+                continue
+                
+            except Exception as e:
+                print(f"Error reading existing bad_segments.json for {speaker_name}: {e}")
+                print("Proceeding with revalidation...")
+        
+        # Delete existing bad_segments.json if force_revalidate is True
+        if force_revalidate and os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+                print(f"Deleted existing bad_segments.json for speaker: {speaker_name}")
+            except Exception as e:
+                print(f"Warning: Could not delete existing bad_segments.json for {speaker_name}: {e}")
+        
         print(f"\n--- Validating speaker: {speaker_name} ---")
         
+        # Run validation without cleaning (cleaning happens separately)
         bad_segments = validate_speaker_segments(speaker_folder, 
-                                               delete_bad=delete_bad,
+                                               delete_bad=False,
                                                score_threshold=score_threshold)
         
         all_results[speaker_folder] = bad_segments
         
         # Save bad segments to JSON file in the speaker folder
-        output_file = os.path.join(speaker_folder, 'bad_segments.json')
-        
         try:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(bad_segments, f, indent=2, ensure_ascii=False)
             print(f"Bad segments saved to: {output_file}")
         except Exception as e:
             print(f"Error saving bad segments to {output_file}: {e}")
+        
+        # If delete_bad is True, clean the bad segments after saving the results
+        if delete_bad and bad_segments:
+            clean_bad_segments_from_file(speaker_folder, output_file)
     
     # Print summary
     total_bad = sum(len(bad_segments) for bad_segments in all_results.values())
@@ -281,13 +314,78 @@ def validate_project(project_name, delete_bad=False, score_threshold=85):
     return all_results
 
 
+def clean_bad_segments_from_file(speaker_folder, bad_segments_file=None):
+    """
+    Clean bad segments based on a bad_segments.json file.
+    
+    Args:
+        speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
+        bad_segments_file (str): Path to bad_segments.json file. If None, uses default location.
+        
+    Returns:
+        int: Number of segments cleaned.
+    """
+    if bad_segments_file is None:
+        bad_segments_file = os.path.join(speaker_folder, 'bad_segments.json')
+    
+    if not os.path.exists(bad_segments_file):
+        print(f"No bad_segments.json found: {bad_segments_file}")
+        return 0
+    
+    try:
+        with open(bad_segments_file, 'r', encoding='utf-8') as f:
+            bad_segments = json.load(f)
+    except Exception as e:
+        print(f"Error reading bad_segments.json: {e}")
+        return 0
+    
+    if not bad_segments:
+        print(f"No bad segments to clean in: {bad_segments_file}")
+        return 0
+    
+    cleaned_count = 0
+    speaker_name = os.path.basename(speaker_folder)
+    print(f"Cleaning {len(bad_segments)} bad segments for speaker: {speaker_name}")
+    
+    for bad_segment in bad_segments:
+        filename = bad_segment.get('filename', '')
+        if not filename:
+            continue
+            
+        wav_file = os.path.join(speaker_folder, filename)
+        txt_file = wav_file.replace('.wav', '.txt')
+        
+        files_deleted = 0
+        if os.path.exists(wav_file):
+            try:
+                os.remove(wav_file)
+                files_deleted += 1
+                print(f"  Deleted: {wav_file}")
+            except Exception as e:
+                print(f"  Error deleting {wav_file}: {e}")
+        
+        if os.path.exists(txt_file):
+            try:
+                os.remove(txt_file)
+                files_deleted += 1
+                print(f"  Deleted: {txt_file}")
+            except Exception as e:
+                print(f"  Error deleting {txt_file}: {e}")
+        
+        if files_deleted > 0:
+            cleaned_count += 1
+    
+    print(f"Cleaned {cleaned_count} segments for speaker: {speaker_name}")
+    return cleaned_count
+
+
 def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85):
     """
     Validate all segments in a speaker folder.
     
     Args:
         speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
-        delete_bad (bool): Whether to delete bad segment files.
+        delete_bad (bool): Whether to delete bad segment files (deprecated - use clean_bad_segments_from_file).
         score_threshold (int): Minimum score threshold.
         
     Returns:
@@ -350,14 +448,6 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 print(f"  Original: '{original_transcription}'")
                 print(f"  New: '{new_transcription}'")
                 
-                # Delete bad segment files if requested
-                if delete_bad:
-                    try:
-                        os.remove(wav_file)
-                        os.remove(txt_file)
-                        print(f"  Deleted: {wav_file} and {txt_file}")
-                    except Exception as e:
-                        print(f"  Error deleting files: {e}")
             else:
                 print(f"Good segment: {wav_filename} (score: {score})")
                 
