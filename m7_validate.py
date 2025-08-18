@@ -49,7 +49,7 @@ def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
         try:
             # Get segment file paths
             segment_audio_file = os.path.join(segment_dir, segment['filename'])
-            segment_text_file = segment_audio_file.replace('.wav', '.txt')
+            segment_text_file = os.path.splitext(segment_audio_file)[0] + '.txt'
             
             if not os.path.exists(segment_audio_file):
                 print(f"Audio file not found: {segment_audio_file}")
@@ -270,39 +270,47 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     for speaker_folder in speaker_folders:
         print(f"  {speaker_folder}")
     
+    # Project-level bad segments file
+    project_bad_segments_file = os.path.join('projects', project_name, 'bad_segments.json')
     all_results = {}
     
+    # Check if we should use existing project bad_segments.json file
+    if not force_revalidate and os.path.exists(project_bad_segments_file):
+        print(f"\n--- Using existing project bad segments file: {project_bad_segments_file} ---")
+        try:
+            with open(project_bad_segments_file, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            
+            # Convert to the expected format if needed
+            if isinstance(existing_data, dict) and 'speakers' in existing_data:
+                for speaker_path, bad_segments in existing_data['speakers'].items():
+                    all_results[speaker_path] = bad_segments
+                print(f"Loaded {sum(len(segs) for segs in all_results.values())} bad segments from existing project file")
+                
+                # If delete_bad is True, clean the segments
+                if delete_bad:
+                    for speaker_folder in speaker_folders:
+                        speaker_bad_segments = all_results.get(speaker_folder, [])
+                        if speaker_bad_segments:
+                            clean_bad_segments_from_speaker(speaker_folder, speaker_bad_segments)
+                
+                return all_results
+                
+        except Exception as e:
+            print(f"Error reading existing project bad_segments.json: {e}")
+            print("Proceeding with revalidation...")
+    
+    # Delete existing project bad_segments.json if force_revalidate is True
+    if force_revalidate and os.path.exists(project_bad_segments_file):
+        try:
+            os.remove(project_bad_segments_file)
+            print(f"Deleted existing project bad_segments.json")
+        except Exception as e:
+            print(f"Warning: Could not delete existing project bad_segments.json: {e}")
+    
+    # Validate each speaker folder
     for speaker_folder in speaker_folders:
         speaker_name = os.path.basename(speaker_folder)
-        output_file = os.path.join(speaker_folder, 'bad_segments.json')
-        
-        # Check if we should use existing bad_segments.json file
-        if not force_revalidate and os.path.exists(output_file):
-            print(f"\n--- Using existing bad segments for speaker: {speaker_name} ---")
-            try:
-                with open(output_file, 'r', encoding='utf-8') as f:
-                    bad_segments = json.load(f)
-                print(f"Loaded {len(bad_segments)} bad segments from existing file")
-                all_results[speaker_folder] = bad_segments
-                
-                # If delete_bad is True, clean the segments using the dedicated function
-                if delete_bad and bad_segments:
-                    clean_bad_segments_from_file(speaker_folder, output_file)
-                
-                continue
-                
-            except Exception as e:
-                print(f"Error reading existing bad_segments.json for {speaker_name}: {e}")
-                print("Proceeding with revalidation...")
-        
-        # Delete existing bad_segments.json if force_revalidate is True
-        if force_revalidate and os.path.exists(output_file):
-            try:
-                os.remove(output_file)
-                print(f"Deleted existing bad_segments.json for speaker: {speaker_name}")
-            except Exception as e:
-                print(f"Warning: Could not delete existing bad_segments.json for {speaker_name}: {e}")
-        
         print(f"\n--- Validating speaker: {speaker_name} ---")
         
         # Run validation without cleaning (cleaning happens separately)
@@ -310,23 +318,37 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
                                                delete_bad=False,
                                                score_threshold=score_threshold)
         
+        # Add speaker path to each bad segment for identification
+        for bad_segment in bad_segments:
+            bad_segment['speaker_folder'] = speaker_folder
+            bad_segment['speaker_name'] = speaker_name
+        
         all_results[speaker_folder] = bad_segments
         
-        # Save bad segments to JSON file in the speaker folder
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(bad_segments, f, indent=2, ensure_ascii=False)
-            print(f"Bad segments saved to: {output_file}")
-        except Exception as e:
-            print(f"Error saving bad segments to {output_file}: {e}")
-        
-        # If delete_bad is True, clean the bad segments after saving the results
+        # If delete_bad is True, clean the bad segments after validation
         if delete_bad and bad_segments:
-            clean_bad_segments_from_file(speaker_folder, output_file)
+            clean_bad_segments_from_speaker(speaker_folder, bad_segments)
+    
+    # Save all bad segments to a single project-level JSON file
+    project_data = {
+        'project_name': project_name,
+        'validation_timestamp': json.dumps(None),  # Could add actual timestamp if needed
+        'total_speakers': len(speaker_folders),
+        'total_bad_segments': sum(len(bad_segments) for bad_segments in all_results.values()),
+        'speakers': all_results
+    }
+    
+    try:
+        os.makedirs(os.path.dirname(project_bad_segments_file), exist_ok=True)
+        with open(project_bad_segments_file, 'w', encoding='utf-8') as f:
+            json.dump(project_data, f, indent=2, ensure_ascii=False)
+        print(f"\nProject bad segments saved to: {project_bad_segments_file}")
+    except Exception as e:
+        print(f"Error saving project bad segments to {project_bad_segments_file}: {e}")
     
     # Print summary
     total_bad = sum(len(bad_segments) for bad_segments in all_results.values())
-    total_segments = sum(len(os.listdir(folder)) // 2 for folder in speaker_folders if os.path.exists(folder))
+    total_segments = sum(len([f for f in os.listdir(folder) if f.endswith('.wav')]) for folder in speaker_folders if os.path.exists(folder))
     print(f"\n=== Project Validation Summary ===")
     print(f"Project: {project_name}")
     print(f"Speaker folders processed: {len(speaker_folders)}")
@@ -336,33 +358,19 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     return all_results
 
 
-def clean_bad_segments_from_file(speaker_folder, bad_segments_file=None):
+def clean_bad_segments_from_speaker(speaker_folder, bad_segments):
     """
-    Clean bad segments based on a bad_segments.json file.
+    Clean bad segments from a speaker folder based on a list of bad segments.
     
     Args:
         speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
-        bad_segments_file (str): Path to bad_segments.json file. If None, uses default location.
+        bad_segments (list): List of bad segment dictionaries.
         
     Returns:
         int: Number of segments cleaned.
     """
-    if bad_segments_file is None:
-        bad_segments_file = os.path.join(speaker_folder, 'bad_segments.json')
-    
-    if not os.path.exists(bad_segments_file):
-        print(f"No bad_segments.json found: {bad_segments_file}")
-        return 0
-    
-    try:
-        with open(bad_segments_file, 'r', encoding='utf-8') as f:
-            bad_segments = json.load(f)
-    except Exception as e:
-        print(f"Error reading bad_segments.json: {e}")
-        return 0
-    
     if not bad_segments:
-        print(f"No bad segments to clean in: {bad_segments_file}")
+        print(f"No bad segments to clean for speaker: {os.path.basename(speaker_folder)}")
         return 0
     
     cleaned_count = 0
@@ -375,7 +383,7 @@ def clean_bad_segments_from_file(speaker_folder, bad_segments_file=None):
             continue
             
         wav_file = os.path.join(speaker_folder, filename)
-        txt_file = wav_file.replace('.wav', '.txt')
+        txt_file = os.path.splitext(wav_file)[0] + '.txt'
         
         files_deleted = 0
         if os.path.exists(wav_file):
@@ -401,13 +409,50 @@ def clean_bad_segments_from_file(speaker_folder, bad_segments_file=None):
     return cleaned_count
 
 
+def clean_bad_segments_from_project(project_name):
+    """
+    Clean bad segments from all speakers in a project based on the project-level bad_segments.json file.
+    
+    Args:
+        project_name (str): Name of the project.
+        
+    Returns:
+        int: Total number of segments cleaned.
+    """
+    project_bad_segments_file = os.path.join('projects', project_name, 'bad_segments.json')
+    
+    if not os.path.exists(project_bad_segments_file):
+        print(f"No project bad_segments.json found: {project_bad_segments_file}")
+        return 0
+    
+    try:
+        with open(project_bad_segments_file, 'r', encoding='utf-8') as f:
+            project_data = json.load(f)
+    except Exception as e:
+        print(f"Error reading project bad_segments.json: {e}")
+        return 0
+    
+    if 'speakers' not in project_data:
+        print(f"Invalid project bad_segments.json format: missing 'speakers' key")
+        return 0
+    
+    total_cleaned = 0
+    for speaker_folder, bad_segments in project_data['speakers'].items():
+        if bad_segments:
+            cleaned_count = clean_bad_segments_from_speaker(speaker_folder, bad_segments)
+            total_cleaned += cleaned_count
+    
+    print(f"Total segments cleaned for project '{project_name}': {total_cleaned}")
+    return total_cleaned
+
+
 def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85):
     """
     Validate all segments in a speaker folder.
     
     Args:
         speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
-        delete_bad (bool): Whether to delete bad segment files (deprecated - use clean_bad_segments_from_file).
+        delete_bad (bool): Whether to delete bad segment files (deprecated - use clean_bad_segments_from_speaker).
         score_threshold (int): Minimum score threshold.
         
     Returns:
@@ -430,7 +475,7 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
         try:
             # Get file paths
             wav_file = os.path.join(speaker_folder, wav_filename)
-            txt_file = wav_file.replace('.wav', '.txt')
+            txt_file = os.path.splitext(wav_file)[0] + '.txt'
             
             if not os.path.exists(txt_file):
                 print(f"Text file not found for {wav_filename}: {txt_file}")
@@ -479,106 +524,6 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 
         except Exception as e:
             print(f"Error processing segment {wav_filename}: {e}")
-            continue
-
-    return bad_segments
-
-
-def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
-    """
-    Validate the segment JSON against the audio file transcriptions.
-    
-    Args:
-        segment_json (str): Path to the segment JSON file.
-        delete_bad (bool): Whether to delete bad segment files.
-        score_threshold (int): Minimum score threshold (default: 85).
-
-    Returns:
-        list: List of bad segments with their scores.
-    """
-
-    # for each segment:
-    # - trim anything more than 5ms of silence (complete silence) from start/end of segment (inplace)
-    # - translate file using soniox (m4_transcribe_file) and check if transcription matches the transcription in the segment file. (expect segments were "build", so each segment has the audio and txt file in appropriate place)
-    # --- calculate score (complete match = 100, complete mismatch = 0, if just special chars differ (comma, .!? ...) it should get score from 90-99, if text differs it should get score from 0 - 90 (depending how muchj difference))
-    # - if score < 85 mark segment as bad, optionally (depending on args) delete the bad segment file and its matching .txt file
-    # return list of bad segments
-
-    if not os.path.exists(segment_json):
-        print(f"Segment JSON file not found: {segment_json}")
-        return []
-
-    with open(segment_json, 'r', encoding='utf-8') as f:
-        segments = json.load(f)
-
-    bad_segments = []
-    segment_dir = os.path.dirname(segment_json)
-    
-    for i, segment in enumerate(segments):
-        try:
-            # Get segment file paths
-            segment_audio_file = os.path.join(segment_dir, segment['filename'])
-            segment_text_file = segment_audio_file.replace('.wav', '.txt')
-            
-            if not os.path.exists(segment_audio_file):
-                print(f"Audio file not found: {segment_audio_file}")
-                continue
-                
-            if not os.path.exists(segment_text_file):
-                print(f"Text file not found: {segment_text_file}")
-                continue
-
-            # Read the existing transcription
-            with open(segment_text_file, 'r', encoding='utf-8') as f:
-                original_transcription = f.read().strip()
-
-            # Trim silence from audio file
-            trimmed_audio_file = _trim_silence(segment_audio_file)
-            
-            # Transcribe the trimmed audio
-            try:
-                new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
-                if isinstance(new_transcription, dict) and 'transcript' in new_transcription:
-                    new_transcription = new_transcription['transcript']
-            except Exception as e:
-                print(f"Error transcribing {trimmed_audio_file}: {e}")
-                continue
-            
-            # Calculate similarity score
-            score = _calculate_similarity_score(original_transcription, new_transcription)
-            
-            # Check if segment is bad
-            if score < score_threshold:
-                bad_segment = {
-                    'index': i,
-                    'filename': segment['filename'],
-                    'score': score,
-                    'original_transcription': original_transcription,
-                    'new_transcription': new_transcription
-                }
-                bad_segments.append(bad_segment)
-                
-                print(f"Bad segment found: {segment['filename']} (score: {score})")
-                print(f"  Original: '{original_transcription}'")
-                print(f"  New: '{new_transcription}'")
-                
-                # Delete bad segment files if requested
-                if delete_bad:
-                    try:
-                        os.remove(segment_audio_file)
-                        os.remove(segment_text_file)
-                        print(f"  Deleted: {segment_audio_file} and {segment_text_file}")
-                    except Exception as e:
-                        print(f"  Error deleting files: {e}")
-            else:
-                print(f"Good segment: {segment['filename']} (score: {score})")
-                
-            # Clean up trimmed file if it's different from original
-            if trimmed_audio_file != segment_audio_file and os.path.exists(trimmed_audio_file):
-                os.remove(trimmed_audio_file)
-                
-        except Exception as e:
-            print(f"Error processing segment {i}: {e}")
             continue
 
     return bad_segments
