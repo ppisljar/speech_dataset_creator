@@ -70,37 +70,42 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
             speaker_db_file = f"{split_path}_speaker_db.npy"
 
             if not override and os.path.exists(silence_file):
-                print(f"Silence file {silence_file} already exists, skipping silence detection.")
+                print(f"Silence file already exists, skipping silence detection.")
             else:
                 # Find silences in the split audio file
                 print(f"Finding silences in {split_path}")
                 find_silences_in_file(split_path, silence_file)
 
             if not override and os.path.exists(transcription_file):
-                print(f"Transcription file {transcription_file} already exists, skipping transcription.")
+                print(f"Transcription file already exists, skipping transcription.")
             else:
                 # Transcribe the split audio file
                 print(f"Transcribing {split_path}")
                 transcribe_file(split_path, transcription_file)
 
             if not override and os.path.exists(pyannote_file + '.csv'):
-                print(f"Pyannote file {pyannote_file} already exists, skipping pyannote processing.")
+                print(f"Pyannote file already exists, skipping pyannote processing.")
             else:
                 # Run pyannote on the split audio file
                 print(f"Running pyannote on {split_path}")
                 pyannote(split_path, pyannote_file, speaker_db=speaker_db_file)
 
             if not override and os.path.exists(segments_file):
-                print(f"Segments file {segments_file} already exists, skipping segmentation.")
+                print(f"Segments file already exists, skipping segmentation.")
             else:
                 # Segment the audio based on transcription
                 print(f"Segmenting {split_path}")
                 segment_audio(split_path, transcription_file, segments_file)
 
             if segment:
-                # If segmentation is enabled, process the segments
-                print(f"Segmenting {split_path} with segments file {segments_file}")
-                generate_segments(segments_file, split_path, f"{split_path}_segments")
+                # check if segmenting was already done (files exist inside {split_path}_segments)
+                segments_output_path = f"{split_path}_segments"
+                if os.path.exists(segments_output_path):
+                    print(f"Segments already exist, skipping segmentation.")
+                else:
+                    # If segmentation is enabled, process the segments
+                    print(f"Segmenting {split_path} with segments file {segments_file}")
+                    generate_segments(segments_file, split_path, segments_output_path)
 
 def main():
     """
