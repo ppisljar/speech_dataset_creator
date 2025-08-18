@@ -47,14 +47,18 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
         clean_audio(file_path, clean_file)
 
     # if any wav inside file_temp_dir exists, we skip the splitting
-    if any(f.endswith('.wav') for f in os.listdir(file_temp_dir)) and not override:
+    if any(f.endswith('.wav') and not f.endswith('_cleaned_audio.wav') for f in os.listdir(file_temp_dir)) and not override:
         print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
     else:
         print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
         split_audio(clean_file, file_temp_dir)
 
     # for each split audio file, perform transcription and diarization
+    split_count = sum(1 for f in os.listdir(file_temp_dir) if f.endswith(".wav"))
     for split_file in os.listdir(file_temp_dir):
+        # if we have more than single split (more than 1 .wav file in the folder):
+        if split_file.endswith(f"_cleaned_audio.wav") and split_count > 1:
+            continue
         if split_file.endswith(".wav"):
             print(f"Processing split file: {split_file}")
             split_path = os.path.join(file_temp_dir, split_file)
