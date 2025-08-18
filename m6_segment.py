@@ -744,8 +744,8 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
             start_ms=main_seg_data['start_ms'],
             end_ms=main_seg_data['end_ms'],
             min_conf=main_seg_data['min_conf'],
-            pad_start_ms=main_seg_data['pad_start_ms'],
-            pad_end_ms=main_seg_data['pad_end_ms']
+            pad_start_ms=main_seg_data.get('pad_start_ms', 0),
+            pad_end_ms=main_seg_data.get('pad_end_ms', 0)
         )
         
         spk_dir = outdir / "speakers" / str(main_seg.speaker)
@@ -771,8 +771,8 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
                     start_ms=subseg_data['start_ms'],
                     end_ms=subseg_data['end_ms'],
                     min_conf=subseg_data['min_conf'],
-                    pad_start_ms=subseg_data['pad_start_ms'],
-                    pad_end_ms=subseg_data['pad_end_ms']
+                    pad_start_ms=subseg_data.get('pad_start_ms', 0),
+                    pad_end_ms=subseg_data.get('pad_end_ms', 0)
                 )
                 
                 # skip subsegment if it is identical to main segment

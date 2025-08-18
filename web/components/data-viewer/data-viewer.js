@@ -115,13 +115,19 @@ class DataViewer {
                         text: segment.main.text,
                         confidence: segment.main.min_conf,
                         seg_idx: segment.seg_idx,
+                        // Preserve padding fields
+                        pad_start_ms: segment.main.pad_start_ms || 0,
+                        pad_end_ms: segment.main.pad_end_ms || 0,
                         // Also include subsegments for detailed view
                         subs: segment.subs.map(sub => ({
                             start: sub.start_ms / 1000,
                             end: sub.end_ms / 1000,
                             speaker: sub.speaker,
                             text: sub.text,
-                            confidence: sub.min_conf
+                            confidence: sub.min_conf,
+                            // Preserve padding fields for subsegments
+                            pad_start_ms: sub.pad_start_ms || 0,
+                            pad_end_ms: sub.pad_end_ms || 0
                         }))
                     }));
                 } else {

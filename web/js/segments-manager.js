@@ -70,7 +70,10 @@ class SegmentsManager {
                         end_ms: Math.round(segment.end * 1000),
                         speaker: segment.speaker,
                         text: segment.text,
-                        min_conf: segment.confidence
+                        min_conf: segment.confidence,
+                        // Preserve padding fields
+                        pad_start_ms: segment.pad_start_ms || 0,
+                        pad_end_ms: segment.pad_end_ms || 0
                     },
                     subs: (segment.subs || []).map(sub => ({
                         start_ms: Math.round(sub.start * 1000),
@@ -78,7 +81,10 @@ class SegmentsManager {
                         speaker: sub.speaker,
                         text: sub.text,
                         min_conf: sub.confidence,
-                        status: sub.status
+                        status: sub.status,
+                        // Preserve padding fields for subsegments
+                        pad_start_ms: sub.pad_start_ms || 0,
+                        pad_end_ms: sub.pad_end_ms || 0
                     })),
                     status: segment.status
                 }))
