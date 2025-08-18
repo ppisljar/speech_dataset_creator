@@ -227,21 +227,43 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     Returns:
         dict: Dictionary with speaker folders as keys and bad segments as values.
     """
-    project_segments_dir = os.path.join('projects', project_name, 'audio')
+    # First try the new m6 folder structure: projects/<project_name>/splits/*/segments/speakers/
+    project_splits_dir = os.path.join('projects', project_name, 'splits')
     
-    if not os.path.exists(project_segments_dir):
-        print(f"Project segments directory not found: {project_segments_dir}")
-        return {}
-    
-    # Find all speaker folders
+    # Find all speaker folders in the m6 structure
     speaker_folders = []
-    for item in os.listdir(project_segments_dir):
-        item_path = os.path.join(project_segments_dir, item)
-        if os.path.isdir(item_path):
-            speaker_folders.append(item_path)
+    
+    if os.path.exists(project_splits_dir):
+        print(f"Looking for segments in m6 structure: {project_splits_dir}")
+        
+        # Walk through splits directory to find all speakers folders
+        for root, dirs, files in os.walk(project_splits_dir):
+            if 'speakers' in dirs:
+                speakers_dir = os.path.join(root, 'speakers')
+                # Find all speaker ID folders within speakers directory
+                for speaker_id in os.listdir(speakers_dir):
+                    speaker_path = os.path.join(speakers_dir, speaker_id)
+                    if os.path.isdir(speaker_path):
+                        speaker_folders.append(speaker_path)
+    
+    # Fallback to old structure: projects/<project_name>/audio/
+    if not speaker_folders:
+        project_segments_dir = os.path.join('projects', project_name, 'audio')
+        
+        if os.path.exists(project_segments_dir):
+            print(f"Looking for segments in legacy structure: {project_segments_dir}")
+            
+            # Find all speaker folders directly under audio
+            for item in os.listdir(project_segments_dir):
+                item_path = os.path.join(project_segments_dir, item)
+                if os.path.isdir(item_path):
+                    speaker_folders.append(item_path)
     
     if not speaker_folders:
         print(f"No speaker folders found in project: {project_name}")
+        print(f"Checked paths:")
+        print(f"  - {project_splits_dir} (m6 structure)")
+        print(f"  - {os.path.join('projects', project_name, 'audio')} (legacy structure)")
         return {}
     
     print(f"Found {len(speaker_folders)} speaker folders in project '{project_name}':")
