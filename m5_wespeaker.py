@@ -20,6 +20,7 @@ import pandas as pd
 import numpy as np
 import uuid
 import argparse
+import torch
 import wespeaker
 
 def load_db(path="speaker_db.npy"):
@@ -63,9 +64,25 @@ def wespeaker_diarize(input_file, output_file, min_speakers=None, max_speakers=N
                 sys.exit(1)
         AUDIO = wav_file
 
+    # Set device for GPU acceleration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"Using GPU: {torch.cuda.get_device_name()}")
+    else:
+        print("WARNING: running on CPU")
+
     # Load wespeaker model
     try:
         model = wespeaker.load_model('english')  # You can change to 'chinese' if needed
+        
+        # Set device for GPU acceleration
+        if torch.cuda.is_available():
+            model.set_device('cuda:0')
+            print("Model configured to use GPU")
+        else:
+            model.set_device('cpu')
+            print("Model configured to use CPU")
+            
         print("Loaded wespeaker model successfully")
     except Exception as e:
         print(f"Error loading wespeaker model: {e}")
