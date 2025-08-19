@@ -20,39 +20,6 @@ import glob
 from pathlib import Path
 
 
-def identify_3dspeaker_csv(csv_file):
-    """
-    Identify if a CSV file is from 3D-Speaker based on its format.
-    
-    Args:
-        csv_file (str): Path to CSV file
-        
-    Returns:
-        bool: True if it appears to be a 3D-Speaker CSV file
-    """
-    try:
-        df = pd.read_csv(csv_file)
-        
-        # Check for various 3D-Speaker column patterns
-        columns = df.columns.str.lower()
-        
-        # Common 3D-Speaker patterns
-        if 'speaker_id' in columns and 'start' in columns and 'end' in columns:
-            return True
-        if 'speaker' in columns and 'duration' not in columns and 'start' in columns:
-            return True
-        if len(columns) >= 3 and any('speaker' in col for col in columns):
-            # Check if speaker values look like 3D-Speaker format (SPEAKER_XX)
-            speaker_col = [col for col in df.columns if 'speaker' in col.lower()][0]
-            if df[speaker_col].astype(str).str.contains('SPEAKER_').any():
-                return True
-        
-        return False
-    except Exception as e:
-        print(f"Warning: Could not read {csv_file}: {e}")
-        return False
-
-
 def convert_3dspeaker_csv(input_file, output_file=None, dry_run=False):
     """
     Convert a 3D-Speaker CSV file to the standard format.
@@ -168,29 +135,19 @@ def convert_3dspeaker_csv(input_file, output_file=None, dry_run=False):
 
 def find_3dspeaker_csvs(projects_dir):
     """
-    Find all potential 3D-Speaker CSV files in the projects directory.
+    Find all 3D-Speaker CSV files in the projects directory.
+    Only searches for files with exact _3dspeaker.csv suffix.
     
     Args:
         projects_dir (str): Path to projects directory
         
     Returns:
-        list: List of CSV file paths that appear to be from 3D-Speaker
+        list: List of CSV file paths from 3D-Speaker
     """
     csv_files = []
     
-    # Search for CSV files in projects directory
-    for pattern in ['**/*3dspeaker*.csv', '**/*_3dspeaker.csv', '**/*3d*.csv']:
-        csv_files.extend(glob.glob(os.path.join(projects_dir, pattern), recursive=True))
-    
-    # Also check all CSV files to see if they match 3D-Speaker format
-    all_csvs = glob.glob(os.path.join(projects_dir, '**/*.csv'), recursive=True)
-    
-    potential_3dspeaker_files = []
-    for csv_file in all_csvs:
-        if csv_file not in csv_files and identify_3dspeaker_csv(csv_file):
-            potential_3dspeaker_files.append(csv_file)
-    
-    csv_files.extend(potential_3dspeaker_files)
+    # Only search for files with exact _3dspeaker.csv suffix to avoid false positives
+    csv_files = glob.glob(os.path.join(projects_dir, '**/*_3dspeaker.csv'), recursive=True)
     
     # Remove duplicates and sort
     csv_files = sorted(list(set(csv_files)))
