@@ -302,7 +302,7 @@ class DataViewer {
             // Scale scroll sensitivity based on zoom level
             // At high zoom (small values), scroll less; at low zoom (large values), scroll more
             const scrollSensitivity = this.waveformData.zoom / 1000; // Convert ms to seconds
-            const scrollAmount = scrollDirection * scrollSensitivity * 2; // Multiply by 2 for reasonable speed
+            const scrollAmount = scrollDirection * scrollSensitivity * 20; // Multiply by 20 for 10x faster speed
             
             const newViewStart = Math.max(0, Math.min(
                 this.waveformData.viewStart + scrollAmount,
