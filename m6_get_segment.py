@@ -3,18 +3,18 @@
 Extract specific segments from a _segments.json file for debugging purposes.
 
 Usage:
-    python m6_get_segment.py segments.json start_segment end_segment output_prefix
+    python m6_get_segment.py segments.json start_seg_id end_seg_id output_prefix
 
 This script:
 1. Loads a _segments.json file
-2. Extracts segments from start_segment to end_segment (inclusive)
+2. Extracts segments with seg_idx from start_seg_id to end_seg_id (inclusive)
 3. Creates a new _segments.json file with only the selected segments
 4. Creates a corresponding _segments_raw.json file with raw subsegments (if available)
 
 Arguments:
     segments_json: Path to the input _segments.json file
-    start_segment: First segment number to extract (1-based)
-    end_segment: Last segment number to extract (1-based)
+    start_segment: First segment ID (seg_idx) to extract
+    end_segment: Last segment ID (seg_idx) to extract
     output_prefix: Prefix for the output files
 
 The script will create:
@@ -54,8 +54,8 @@ def main():
         description="Extract specific segments from a _segments.json file for debugging purposes."
     )
     parser.add_argument("segments_json", type=Path, help="Path to the input _segments.json file")
-    parser.add_argument("start_segment", type=int, help="First segment number to extract (1-based)")
-    parser.add_argument("end_segment", type=int, help="Last segment number to extract (1-based)")
+    parser.add_argument("start_segment", type=int, help="First segment ID (seg_idx) to extract")
+    parser.add_argument("end_segment", type=int, help="Last segment ID (seg_idx) to extract")
     parser.add_argument("output_prefix", type=str, help="Prefix for the output files")
     
     args = parser.parse_args()
@@ -77,17 +77,28 @@ def main():
     all_segments = segments_data['segments']
     original_audio_path = segments_data.get('audio_path', '')
     
-    # Validate segment numbers
-    max_segment = len(all_segments)
-    if args.end_segment > max_segment:
-        raise SystemExit(f"end_segment ({args.end_segment}) exceeds available segments ({max_segment})")
+    # Validate segment numbers - check available seg_idx values
+    available_seg_ids = [seg['seg_idx'] for seg in all_segments]
+    min_seg_id = min(available_seg_ids) if available_seg_ids else 1
+    max_seg_id = max(available_seg_ids) if available_seg_ids else 0
     
-    # Extract the requested segments (convert to 0-based indexing)
-    start_idx = args.start_segment - 1
-    end_idx = args.end_segment  # end_segment is inclusive, so we don't subtract 1
-    selected_segments = all_segments[start_idx:end_idx]
+    if args.start_segment < min_seg_id or args.start_segment > max_seg_id:
+        raise SystemExit(f"start_segment ({args.start_segment}) not found. Available seg_idx range: {min_seg_id}-{max_seg_id}")
     
-    print(f"Extracting segments {args.start_segment} to {args.end_segment} ({len(selected_segments)} segments)")
+    if args.end_segment < min_seg_id or args.end_segment > max_seg_id:
+        raise SystemExit(f"end_segment ({args.end_segment}) not found. Available seg_idx range: {min_seg_id}-{max_seg_id}")
+    
+    # Extract the requested segments by seg_idx (not array position)
+    selected_segments = []
+    for segment in all_segments:
+        seg_idx = segment['seg_idx']
+        if args.start_segment <= seg_idx <= args.end_segment:
+            selected_segments.append(segment)
+    
+    if not selected_segments:
+        raise SystemExit(f"No segments found with seg_idx between {args.start_segment} and {args.end_segment}")
+    
+    print(f"Extracting segments with seg_idx {args.start_segment} to {args.end_segment} ({len(selected_segments)} segments)")
     
     # Renumber the selected segments
     renumbered_segments = renumber_segments(selected_segments)
@@ -102,7 +113,7 @@ def main():
         'extracted_range': {
             'start_segment': args.start_segment,
             'end_segment': args.end_segment,
-            'original_total_segments': max_segment
+            'original_total_segments': len(all_segments)
         }
     }
     
@@ -120,8 +131,12 @@ def main():
         raw_segments_data = load_segments(original_raw_file)
         raw_all_segments = raw_segments_data['segments']
         
-        # Extract the same range from raw segments
-        raw_selected_segments = raw_all_segments[start_idx:end_idx]
+        # Extract the same range from raw segments by seg_idx
+        raw_selected_segments = []
+        for segment in raw_all_segments:
+            seg_idx = segment['seg_idx']
+            if args.start_segment <= seg_idx <= args.end_segment:
+                raw_selected_segments.append(segment)
         
         # Renumber the raw segments
         raw_renumbered_segments = renumber_segments(raw_selected_segments)
