@@ -694,8 +694,10 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
         print(f"  Copied {copied_count} good segments to {speaker_audio_dir}")
         speaker_counter += 1
     
-    # Save copy statistics
-    stats_file = os.path.join(project_audio_dir, 'copy_stats.json')
+    # Save copy statistics to splits folder instead of audio folder
+    project_splits_dir = os.path.join('projects', project_name, 'splits')
+    os.makedirs(project_splits_dir, exist_ok=True)
+    stats_file = os.path.join(project_splits_dir, 'copy_stats.json')
     try:
         with open(stats_file, 'w', encoding='utf-8') as f:
             json.dump(copy_stats, f, indent=2, ensure_ascii=False)

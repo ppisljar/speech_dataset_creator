@@ -26,7 +26,9 @@ PS: this is fully AI generated, not a single line of code was written manually
 ├── m2_silences.py         # Silence detection
 ├── m3_split.py            # Audio splitting
 ├── m4_transcribe_file.py  # Speech-to-text transcription
-├── m5_pyannote.py         # Speaker diarization
+├── m5_pyannote.py         # Speaker diarization (pyannote.audio)
+├── m5_wespeaker.py        # Speaker diarization (wespeaker)
+├── m5_3dspeaker.py        # Speaker diarization (3D-Speaker)
 ├── m6_segment.py          # Audio segmentation
 ├── m7_validate.py         # Validation of transcriptions
 ├── m8_meta.py             # Metadata generation
@@ -139,9 +141,42 @@ python m3_split.py <audio_file> <output_directory>
 python m4_transcribe_file.py <audio_file> <output_json>
 ```
 
-#### m5_pyannote.py - Speaker Diarization
+#### Speaker Diarization Options
+
+This project provides three different speaker diarization implementations:
+
+**m5_pyannote.py - pyannote.audio (Original)**
 ```bash
 python m5_pyannote.py <audio_file> <output_prefix>
+```
+- Requires HuggingFace token
+- High accuracy
+- Slower processing
+
+**m5_wespeaker.py - WeSpeaker**
+```bash
+python m5_wespeaker.py <audio_file> <output_prefix>
+```
+- No token required
+- Fast processing
+- Good accuracy
+
+**m5_3dspeaker.py - 3D-Speaker**
+```bash
+python m5_3dspeaker.py <audio_file> --output_dir <output_dir>
+```
+- No token required
+- Very fast processing (RTF: 0.03)
+- Competitive accuracy
+- Optional overlap detection
+
+All three modules provide the same `pyannote()` function interface for compatibility. To switch between them, simply change the import in `run.py`:
+
+```python
+# Choose one:
+from m5_pyannote import pyannote      # Original pyannote.audio
+from m5_wespeaker import pyannote     # WeSpeaker
+from m5_3dspeaker import pyannote     # 3D-Speaker
 ```
 
 #### m6_segment.py - Audio Segmentation

@@ -66,6 +66,8 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
             silence_file = f"{split_path}_silences.json"
             transcription_file = f"{split_path}_transcription.json"
             pyannote_file = f"{split_path}_pyannote"
+            threedspeaker_file = f"{split_path}_3dspeaker"
+            wespeaker_file = f"{split_path}_wespeaker"
             segments_file = f"{split_path}_segments.json"
             speaker_db_file = f"{split_path}_speaker_db.npy"
 
@@ -89,6 +91,22 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
                 # Run pyannote on the split audio file
                 print(f"Running pyannote on {split_path}")
                 pyannote(split_path, pyannote_file, speaker_db=speaker_db_file)
+
+            if not override and os.path.exists(threedspeaker_file + '.csv'):
+                print(f"3D-Speaker file already exists, skipping 3D-Speaker processing.")
+            else:
+                # Run 3D-Speaker on the split audio file
+                print(f"Running 3D-Speaker on {split_path}")
+                from m5_3dspeaker import three_d_speaker
+                three_d_speaker(split_path, output_dir=os.path.dirname(threedspeaker_file))
+
+            if not override and os.path.exists(wespeaker_file + '.csv'):
+                print(f"Wespeaker file already exists, skipping Wespeaker processing.")
+            else:
+                # Run Wespeaker on the split audio file
+                print(f"Running Wespeaker on {split_path}")
+                from m5_wespeaker import wespeaker
+                wespeaker(split_path, output_dir=os.path.dirname(wespeaker_file))
 
             if not override and os.path.exists(segments_file):
                 print(f"Segments file already exists, skipping segmentation.")

@@ -56,6 +56,7 @@ def main():
     project_dir = os.path.join(projects_dir, args.project_name)
     raw_dir = os.path.join(project_dir, 'raw')
     splits_dir = os.path.join(project_dir, 'splits')
+    audio_dir = os.path.join(project_dir, 'audio')
     
     # Check if project exists
     if not os.path.exists(project_dir):
@@ -198,7 +199,7 @@ def main():
         print("=" * 60)
         
         try:
-            metadata_file = os.path.join(splits_dir, "metadata.csv")
+            metadata_file = os.path.join(audio_dir, "metadata.csv")
             generate_metadata(project_dir, metadata_file)
             print(f"✓ Metadata file generated: {metadata_file}")
         except Exception as e:
