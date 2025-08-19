@@ -15,6 +15,7 @@ Arguments:
     --validate: Run validation on the project's segments (optional)
     --clean: Remove files that fail validation (can be used alone if bad_segments.json exists) (optional)
     --meta: Generate metadata file for the project after processing segments (optional)
+    --copy: Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips (optional)
 
 Examples:
     python run_all.py my_project
@@ -24,6 +25,8 @@ Examples:
     python run_all.py my_project --validate --clean
     python run_all.py my_project --clean
     python run_all.py my_project --segment --meta
+    python run_all.py my_project --validate --copy
+    python run_all.py my_project --copy
 """
 
 import os
@@ -31,7 +34,7 @@ import sys
 import argparse
 from pathlib import Path
 from run import process_file
-from m7_validate import validate_project
+from m7_validate import validate_project, copy_good_segments_to_project_audio
 from m8_meta import generate_metadata
 
 def main():
@@ -43,6 +46,7 @@ def main():
     parser.add_argument("--validate", action="store_true", help="Run validation on the project's segments")
     parser.add_argument("--clean", action="store_true", help="Remove files that fail validation (can be used alone if bad_segments.json exists)")
     parser.add_argument("--meta", action="store_true", help="Generate metadata file for the project after processing segments")
+    parser.add_argument("--copy", action="store_true", help="Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips")
     
     args = parser.parse_args()
    
@@ -88,6 +92,7 @@ def main():
     print(f"  Override existing files: {'Yes' if args.override else 'No'}")
     print(f"  Enable segmentation: {'Yes' if args.segment else 'No'}")
     print(f"  Generate metadata: {'Yes' if args.meta else 'No'}")
+    print(f"  Copy good segments to audio folder: {'Yes' if args.copy else 'No'}")
     if args.validate:
         print(f"  Run validation: Yes")
         print(f"  Clean failed segments: {'Yes' if args.clean else 'No'}")
@@ -169,6 +174,23 @@ def main():
                 sys.exit(1)
         
     
+    # Handle copying good segments if requested
+    if args.copy:
+        print("\n" + "=" * 60)
+        print(f"Copying good segments to project/audio folder for project: {args.project_name}")
+        print("=" * 60)
+        
+        try:
+            copy_stats = copy_good_segments_to_project_audio(args.project_name)
+            if copy_stats:
+                print("\nCopy operation completed successfully!")
+            else:
+                print("\nCopy operation failed or no segments to copy.")
+        except Exception as e:
+            print(f"\nError during copy operation: {str(e)}")
+            sys.exit(1)
+        
+    
     # Generate metadata if requested
     if args.meta:
         print("\n" + "=" * 60)
@@ -177,7 +199,7 @@ def main():
         
         try:
             metadata_file = os.path.join(splits_dir, "metadata.csv")
-            generate_metadata(splits_dir, metadata_file)
+            generate_metadata(project_dir, metadata_file)
             print(f"✓ Metadata file generated: {metadata_file}")
         except Exception as e:
             print(f"✗ Error generating metadata: {str(e)}")

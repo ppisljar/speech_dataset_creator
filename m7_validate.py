@@ -9,6 +9,7 @@ import os
 import re
 import difflib
 import argparse
+import shutil
 from pathlib import Path
 import librosa
 import soundfile as sf
@@ -529,6 +530,155 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
     return bad_segments
 
 
+def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
+    """
+    Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips.
+    
+    Args:
+        project_name (str): Name of the project.
+        bad_segments_file (str): Path to bad_segments.json file. If None, uses default location.
+        
+    Returns:
+        dict: Statistics about copied segments per speaker.
+    """
+    # Load bad segments to know which ones to skip
+    bad_segments_dict = {}
+    if bad_segments_file is None:
+        bad_segments_file = os.path.join('projects', project_name, 'bad_segments.json')
+    
+    if os.path.exists(bad_segments_file):
+        try:
+            with open(bad_segments_file, 'r', encoding='utf-8') as f:
+                bad_segments_data = json.load(f)
+                # Create a lookup dict by speaker folder and filename
+                for speaker_folder, bad_segments in bad_segments_data.items():
+                    bad_segments_dict[speaker_folder] = {
+                        segment['filename'] for segment in bad_segments
+                    }
+        except Exception as e:
+            print(f"Warning: Could not load bad segments file {bad_segments_file}: {e}")
+    
+    # Find all speaker folders in the m6 structure
+    project_splits_dir = os.path.join('projects', project_name, 'splits')
+    project_audio_dir = os.path.join('projects', project_name, 'audio')
+    
+    # Create audio directory if it doesn't exist
+    os.makedirs(project_audio_dir, exist_ok=True)
+    
+    speaker_folders = []
+    
+    if os.path.exists(project_splits_dir):
+        print(f"Looking for segments in: {project_splits_dir}")
+        
+        # Walk through splits directory to find all speakers folders
+        for root, dirs, files in os.walk(project_splits_dir):
+            if 'speakers' in dirs:
+                speakers_dir = os.path.join(root, 'speakers')
+                # Find all speaker ID folders within speakers directory
+                for speaker_id in os.listdir(speakers_dir):
+                    speaker_path = os.path.join(speakers_dir, speaker_id)
+                    if os.path.isdir(speaker_path):
+                        speaker_folders.append(speaker_path)
+    
+    if not speaker_folders:
+        print(f"No speaker folders found in project: {project_name}")
+        return {}
+    
+    print(f"Found {len(speaker_folders)} speaker folders to process")
+    
+    # Statistics
+    copy_stats = {}
+    speaker_counter = 0
+    
+    for speaker_folder in speaker_folders:
+        speaker_id = os.path.basename(speaker_folder)
+        print(f"Processing speaker folder: {speaker_folder}")
+        
+        # Create speaker subfolder in audio directory
+        speaker_audio_dir = os.path.join(project_audio_dir, f"speaker_{speaker_counter:02d}")
+        os.makedirs(speaker_audio_dir, exist_ok=True)
+        
+        # Find all .wav files in the speaker folder
+        wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+        
+        if not wav_files:
+            print(f"No .wav files found in speaker folder: {speaker_folder}")
+            continue
+        
+        # Get list of bad segments for this speaker folder
+        bad_filenames = bad_segments_dict.get(speaker_folder, set())
+        
+        # Filter out bad segments
+        good_wav_files = [f for f in wav_files if f not in bad_filenames]
+        
+        print(f"Found {len(wav_files)} total segments, {len(bad_filenames)} bad, {len(good_wav_files)} good")
+        
+        # Copy good segments with renumbering
+        clip_counter = 1
+        copied_count = 0
+        
+        for wav_filename in sorted(good_wav_files):  # Sort for consistent numbering
+            try:
+                # Source paths
+                src_wav = os.path.join(speaker_folder, wav_filename)
+                src_txt = os.path.splitext(src_wav)[0] + '.txt'
+                
+                if not os.path.exists(src_txt):
+                    print(f"Warning: Text file not found for {wav_filename}, skipping")
+                    continue
+                
+                # Destination paths
+                dst_wav = os.path.join(speaker_audio_dir, f"clip_{clip_counter:05d}.wav")
+                dst_txt = os.path.join(speaker_audio_dir, f"clip_{clip_counter:05d}.txt")
+                
+                # Copy files
+                shutil.copy2(src_wav, dst_wav)
+                shutil.copy2(src_txt, dst_txt)
+                
+                copied_count += 1
+                clip_counter += 1
+                
+            except Exception as e:
+                print(f"Error copying {wav_filename}: {e}")
+                continue
+        
+        copy_stats[f"speaker_{speaker_counter:02d}"] = {
+            'original_speaker_id': speaker_id,
+            'source_folder': speaker_folder,
+            'destination_folder': speaker_audio_dir,
+            'total_segments': len(wav_files),
+            'bad_segments': len(bad_filenames),
+            'copied_segments': copied_count
+        }
+        
+        print(f"Copied {copied_count} good segments to {speaker_audio_dir}")
+        speaker_counter += 1
+    
+    # Save copy statistics
+    stats_file = os.path.join(project_audio_dir, 'copy_stats.json')
+    try:
+        with open(stats_file, 'w', encoding='utf-8') as f:
+            json.dump(copy_stats, f, indent=2, ensure_ascii=False)
+        print(f"Copy statistics saved to: {stats_file}")
+    except Exception as e:
+        print(f"Error saving copy statistics: {e}")
+    
+    # Print summary
+    total_copied = sum(stats['copied_segments'] for stats in copy_stats.values())
+    total_bad = sum(stats['bad_segments'] for stats in copy_stats.values())
+    total_segments = sum(stats['total_segments'] for stats in copy_stats.values())
+    
+    print(f"\n=== Copy Summary ===")
+    print(f"Project: {project_name}")
+    print(f"Speakers processed: {len(copy_stats)}")
+    print(f"Total segments: {total_segments}")
+    print(f"Bad segments skipped: {total_bad}")
+    print(f"Good segments copied: {total_copied}")
+    print(f"Destination: {project_audio_dir}")
+    
+    return copy_stats
+
+
 def main():
     parser = argparse.ArgumentParser(description='Validate transcriptions in segment files or entire projects')
     parser.add_argument('input_path', help='Path to segment JSON file or project name')
@@ -538,6 +688,8 @@ def main():
                         help='Score threshold for marking segments as bad (default: 85)')
     parser.add_argument('--output', '-o', type=str, default=None,
                         help='Output file for bad segments (only used for single segment file, default: bad_segments.json in same folder)')
+    parser.add_argument('--copy', action='store_true',
+                        help='Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips')
     
     args = parser.parse_args()
     
@@ -574,11 +726,20 @@ def main():
         print(f"Validating project: {args.input_path}")
         
         if args.output:
-            print("Warning: --output option is ignored when validating entire projects. Bad segments are saved in each split folder.")
+            print("Warning: --output option is ignored when validating entire projects. Bad segments are saved in project folder.")
         
         all_results = validate_project(args.input_path,
                                      delete_bad=args.delete_bad,
                                      score_threshold=args.threshold)
+        
+        # Copy good segments if requested
+        if args.copy:
+            print(f"\n=== Copying good segments to project/audio folder ===")
+            copy_stats = copy_good_segments_to_project_audio(args.input_path)
+            if copy_stats:
+                print("Copy operation completed successfully!")
+            else:
+                print("Copy operation failed or no segments to copy.")
         
         return all_results
 
