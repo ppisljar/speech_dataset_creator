@@ -533,6 +533,7 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
 def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
     """
     Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips.
+    Groups speakers by their ID across all segments (e.g., all SPEAKER_00 folders merged into one).
     
     Args:
         project_name (str): Name of the project.
@@ -598,47 +599,74 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
     
     print(f"Found {len(speaker_folders)} speaker folders to process")
     
+    # Group speaker folders by their actual speaker ID (basename)
+    # This is the key fix: merge all SPEAKER_00 folders from different segments
+    speakers_by_id = {}
+    for speaker_folder in speaker_folders:
+        speaker_id = os.path.basename(speaker_folder)
+        if speaker_id not in speakers_by_id:
+            speakers_by_id[speaker_id] = []
+        speakers_by_id[speaker_id].append(speaker_folder)
+    
+    print(f"Grouped into {len(speakers_by_id)} unique speakers:")
+    for speaker_id, folders in speakers_by_id.items():
+        print(f"  {speaker_id}: {len(folders)} source folders")
+    
     # Statistics
     copy_stats = {}
     speaker_counter = 0
     
-    for speaker_folder in speaker_folders:
-        speaker_id = os.path.basename(speaker_folder)
-        print(f"Processing speaker folder: {speaker_folder}")
+    # Process each unique speaker ID
+    for speaker_id, source_folders in speakers_by_id.items():
+        print(f"\n--- Processing speaker: {speaker_id} ---")
         
         # Create speaker subfolder in audio directory
         speaker_audio_dir = os.path.join(project_audio_dir, f"speaker_{speaker_counter:02d}")
         os.makedirs(speaker_audio_dir, exist_ok=True)
         
-        # Find all .wav files in the speaker folder
-        wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+        # Collect all segments from all source folders for this speaker
+        all_segments = []
+        total_wav_files = 0
+        total_bad_count = 0
         
-        if not wav_files:
-            print(f"No .wav files found in speaker folder: {speaker_folder}")
-            continue
-        
-        # Get list of bad segments for this speaker folder
-        bad_filenames = bad_segments_dict.get(speaker_folder, set())
-        
-        # Filter out bad segments
-        good_wav_files = [f for f in wav_files if f not in bad_filenames]
-        
-        print(f"Found {len(wav_files)} total segments, {len(bad_filenames)} bad, {len(good_wav_files)} good")
-        
-        # Copy good segments with renumbering
-        clip_counter = 1
-        copied_count = 0
-        
-        for wav_filename in sorted(good_wav_files):  # Sort for consistent numbering
-            try:
-                # Source paths
+        for speaker_folder in source_folders:
+            print(f"  Processing source folder: {speaker_folder}")
+            
+            # Find all .wav files in this speaker folder
+            wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+            total_wav_files += len(wav_files)
+            
+            if not wav_files:
+                print(f"    No .wav files found")
+                continue
+            
+            # Get list of bad segments for this specific speaker folder
+            bad_filenames = bad_segments_dict.get(speaker_folder, set())
+            total_bad_count += len(bad_filenames)
+            
+            # Filter out bad segments and add to collection
+            good_wav_files = [f for f in wav_files if f not in bad_filenames]
+            
+            for wav_filename in good_wav_files:
                 src_wav = os.path.join(speaker_folder, wav_filename)
                 src_txt = os.path.splitext(src_wav)[0] + '.txt'
                 
-                if not os.path.exists(src_txt):
-                    print(f"Warning: Text file not found for {wav_filename}, skipping")
-                    continue
-                
+                if os.path.exists(src_txt):
+                    all_segments.append((src_wav, src_txt))
+                else:
+                    print(f"    Warning: Text file not found for {wav_filename}, skipping")
+            
+            print(f"    Found {len(wav_files)} total, {len(bad_filenames)} bad, {len(good_wav_files)} good")
+        
+        # Sort all segments for consistent numbering
+        all_segments.sort(key=lambda x: x[0])  # Sort by wav file path
+        
+        # Copy all segments with renumbering
+        clip_counter = 1
+        copied_count = 0
+        
+        for src_wav, src_txt in all_segments:
+            try:
                 # Destination paths
                 dst_wav = os.path.join(speaker_audio_dir, f"clip_{clip_counter:05d}.wav")
                 dst_txt = os.path.join(speaker_audio_dir, f"clip_{clip_counter:05d}.txt")
@@ -651,19 +679,19 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
                 clip_counter += 1
                 
             except Exception as e:
-                print(f"Error copying {wav_filename}: {e}")
+                print(f"  Error copying {os.path.basename(src_wav)}: {e}")
                 continue
         
         copy_stats[f"speaker_{speaker_counter:02d}"] = {
             'original_speaker_id': speaker_id,
-            'source_folder': speaker_folder,
+            'source_folders': source_folders,
             'destination_folder': speaker_audio_dir,
-            'total_segments': len(wav_files),
-            'bad_segments': len(bad_filenames),
+            'total_segments': total_wav_files,
+            'bad_segments': total_bad_count,
             'copied_segments': copied_count
         }
         
-        print(f"Copied {copied_count} good segments to {speaker_audio_dir}")
+        print(f"  Copied {copied_count} good segments to {speaker_audio_dir}")
         speaker_counter += 1
     
     # Save copy statistics
@@ -682,7 +710,7 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
     
     print(f"\n=== Copy Summary ===")
     print(f"Project: {project_name}")
-    print(f"Speakers processed: {len(copy_stats)}")
+    print(f"Unique speakers: {len(copy_stats)}")
     print(f"Total segments: {total_segments}")
     print(f"Bad segments skipped: {total_bad}")
     print(f"Good segments copied: {total_copied}")
