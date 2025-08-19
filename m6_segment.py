@@ -445,7 +445,7 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
         merged_subsegments = merge_subsegments_with_no_gaps(subsegments)
         
         if len(seg.text) > 1:
-            output_segments.append({'main': seg, 'subs': merged_subsegments})
+            output_segments.append({'main': seg, 'subs': subsegments, 'subs_merged': merged_subsegments})
         else:
             # add this to previous segment as its a single char
             output_segments[-1]['main'].text += seg.text
@@ -882,15 +882,64 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
         print("segment refinement complete")
 
     for s in segments:
-        s['subs'] = align_subsegments_with_silences(s['subs'], silences)
+        s['subs'] = align_subsegments_with_silences(s['subs_merged'], silences)
         # Split subsegments that contain significant internal silences
         s['subs'] = split_subsegments_on_internal_silence(s['subs'], silences, tokens)
 
-    # Convert segments to serializable format
+    # Store raw segments (before merging) for debugging
+    raw_segments_data = []
+    for seg_idx, segdict in enumerate(segments, 1):
+        main_seg = segdict['main']
+        raw_sub_segs = segdict['subs']  # These are the raw subsegments before merging
+        
+        # Convert main segment
+        main_data = {
+            'speaker': main_seg.speaker,
+            'text': main_seg.text,
+            'start_ms': main_seg.start_ms,
+            'end_ms': main_seg.end_ms,
+            'min_conf': main_seg.min_conf,
+            'pad_start_ms': main_seg.pad_start_ms,
+            'pad_end_ms': main_seg.pad_end_ms
+        }
+        
+        # Convert raw subsegments
+        raw_sub_data = []
+        for subseg in raw_sub_segs:
+            raw_sub_data.append({
+                'speaker': subseg.speaker,
+                'text': subseg.text,
+                'start_ms': subseg.start_ms,
+                'end_ms': subseg.end_ms,
+                'min_conf': subseg.min_conf,
+                'pad_start_ms': subseg.pad_start_ms,
+                'pad_end_ms': subseg.pad_end_ms
+            })
+        
+        raw_segments_data.append({
+            'seg_idx': seg_idx,
+            'main': main_data,
+            'subs': raw_sub_data
+        })
+
+    # Save raw segments file
+    raw_outfile = Path(str(outfile).replace('_segments.json', '_segments_raw.json'))
+    raw_output_data = {
+        'segments': raw_segments_data,
+        'audio_path': str(audio_path),
+        'total_segments': len(segments)
+    }
+    
+    with raw_outfile.open('w', encoding='utf-8') as f:
+        json.dump(raw_output_data, f, indent=2, ensure_ascii=False)
+    
+    print(f"[ok] Saved raw segments (before merging) to {raw_outfile}")
+
+    # Convert segments to serializable format (processed segments)
     serializable_segments = []
     for seg_idx, segdict in enumerate(segments, 1):
         main_seg = segdict['main']
-        sub_segs = segdict['subs']
+        sub_segs = segdict['subs']  # These are the final processed subsegments
         
         # Convert main segment
         main_data = {
@@ -1085,6 +1134,8 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
                 # update speaker for all subsegments as well
                 for subsegment in refined_segments[seg_idx]['subs']:
                     subsegment.speaker = entry.speaker
+                for subsegment in refined_segments[seg_idx]['subs_merged']:
+                    subsegment.speaker = entry.speaker
 
         if not overlapping_segments:
             continue
@@ -1141,9 +1192,9 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
             refined_segments[i]['main'] = refined_main
             
             # Scale subsegments if main segment changed
-            original_subs = segments_list[i]['subs']
+            original_subs = segments_list[i]['subs_merged']
             if original_subs:
-                refined_segments[i]['subs'] = scale_subsegments(refined_main, original_main, original_subs)
+                refined_segments[i]['subs_merged'] = scale_subsegments(refined_main, original_main, original_subs)
     
     return refined_segments
 
