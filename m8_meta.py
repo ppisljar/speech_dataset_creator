@@ -15,7 +15,7 @@ def generate_metadata(project_dir, output_file='metadata.txt'):
         None
     """
     # Call the function to generate metadata for splits
-    audio_dir = os.path.join(project_dir, 'audio')
+    podcast_dir = os.path.join(project_dir, 'audio')
 
     # for every folder inside {podcast_dir}
     metadata = []

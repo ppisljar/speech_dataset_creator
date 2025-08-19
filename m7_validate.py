@@ -550,11 +550,23 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
         try:
             with open(bad_segments_file, 'r', encoding='utf-8') as f:
                 bad_segments_data = json.load(f)
-                # Create a lookup dict by speaker folder and filename
-                for speaker_folder, bad_segments in bad_segments_data.items():
-                    bad_segments_dict[speaker_folder] = {
-                        segment['filename'] for segment in bad_segments
-                    }
+                
+                # Handle the project-level structure with 'speakers' key
+                if isinstance(bad_segments_data, dict) and 'speakers' in bad_segments_data:
+                    speakers_data = bad_segments_data['speakers']
+                    # Create a lookup dict by speaker folder and filename
+                    for speaker_folder, bad_segments in speakers_data.items():
+                        if isinstance(bad_segments, list):
+                            bad_segments_dict[speaker_folder] = {
+                                segment['filename'] for segment in bad_segments if isinstance(segment, dict) and 'filename' in segment
+                            }
+                else:
+                    # Handle legacy format where it's directly speaker_folder -> bad_segments
+                    for speaker_folder, bad_segments in bad_segments_data.items():
+                        if isinstance(bad_segments, list):
+                            bad_segments_dict[speaker_folder] = {
+                                segment['filename'] for segment in bad_segments if isinstance(segment, dict) and 'filename' in segment
+                            }
         except Exception as e:
             print(f"Warning: Could not load bad segments file {bad_segments_file}: {e}")
     
