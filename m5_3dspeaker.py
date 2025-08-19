@@ -17,6 +17,7 @@ import json
 import numpy as np
 import pandas as pd
 import subprocess
+import torch
 from pathlib import Path
 
 # Add the current directory to the path for local imports
@@ -91,10 +92,18 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
     # Convert audio to WAV if needed
     wav_path = convert_to_wav_if_needed(audio_file_path)
     
+    # Set device for GPU acceleration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"Using GPU: {torch.cuda.get_device_name()}")
+    else:
+        print("WARNING: running on CPU")
+    
     try:
         # Initialize 3D-Speaker diarization pipeline
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
         pipeline = Diarization3Dspeaker(
-            device=None,  # Auto-detect device
+            device=device_str,  # Use GPU if available
             include_overlap=include_overlap,
             hf_access_token=None,  # Not needed unless include_overlap is True
             speaker_num=None,  # Auto-detect number of speakers
@@ -107,18 +116,69 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
         # Convert results to the expected format
         segments = []
         rows = []
-        for segment in diarization_result:
-            start_time, end_time, speaker_id = segment
-            segments.append([start_time, end_time, speaker_id])
-            
-            # Create row data for CSV output (matching pyannote format)
-            rows.append({
-                'start': start_time,
-                'end': end_time,
-                'duration': end_time - start_time,
-                'speaker': f"SPEAKER_{speaker_id:02d}",
-                'speaker_id': speaker_id
-            })
+        
+        # The 3dspeaker result format may vary, handle different formats
+        if hasattr(diarization_result, 'itertracks'):
+            # If it's a pyannote-style result
+            for segment, track, speaker in diarization_result.itertracks(yield_label=True):
+                start_time = segment.start
+                end_time = segment.end
+                duration = end_time - start_time
+                speaker_name = f"spk_{speaker}"
+                
+                rows.append({
+                    'speaker': speaker_name,
+                    'start': round(start_time, 3),
+                    'end': round(end_time, 3),
+                    'duration': round(duration, 3),
+                })
+        elif isinstance(diarization_result, list):
+            # If it's a list of segments
+            for i, segment in enumerate(diarization_result):
+                if len(segment) >= 3:
+                    start_time, end_time, speaker_id = segment[:3]
+                    duration = end_time - start_time
+                    speaker_name = f"spk_{speaker_id}"
+                    
+                    rows.append({
+                        'speaker': speaker_name,
+                        'start': round(start_time, 3),
+                        'end': round(end_time, 3),
+                        'duration': round(duration, 3),
+                    })
+        else:
+            # Handle other formats by iterating over the result
+            try:
+                for segment in diarization_result:
+                    # Try to extract start, end, speaker from various formats
+                    if hasattr(segment, 'start') and hasattr(segment, 'end'):
+                        start_time = segment.start
+                        end_time = segment.end
+                        speaker_id = getattr(segment, 'speaker', getattr(segment, 'label', 'unknown'))
+                    elif isinstance(segment, (list, tuple)) and len(segment) >= 3:
+                        start_time, end_time, speaker_id = segment[:3]
+                    else:
+                        continue
+                    
+                    duration = end_time - start_time
+                    speaker_name = f"spk_{speaker_id}"
+                    
+                    rows.append({
+                        'speaker': speaker_name,
+                        'start': round(start_time, 3),
+                        'end': round(end_time, 3),
+                        'duration': round(duration, 3),
+                    })
+            except Exception as e:
+                print(f"Warning: Could not parse diarization result: {e}")
+                print(f"Result type: {type(diarization_result)}")
+                if hasattr(diarization_result, '__dict__'):
+                    print(f"Result attributes: {diarization_result.__dict__}")
+                return {
+                    "segments": [],
+                    "rttm_file": None,
+                    "csv_file": None
+                }
         
         # Generate output files if output_file is specified
         if output_file:
@@ -127,14 +187,19 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
-            # Save RTTM file
+            # Save RTTM file (standard diarization format)
             base_name = os.path.basename(audio_file_path).rsplit('.', 1)[0]
             rttm_file = f"{output_file}.rttm"
-            pipeline.save_diar_output(rttm_file, wav_id=base_name, output_field_labels=diarization_result)
+            
+            with open(rttm_file, "w") as f:
+                for row in rows:
+                    # RTTM format: SPEAKER filename channel_id start_time duration <NA> <NA> speaker_label <NA> <NA>
+                    f.write(f"SPEAKER {base_name} 1 {row['start']:.3f} {row['duration']:.3f} <NA> <NA> {row['speaker']} <NA> <NA>\n")
             
             # Save CSV file for inspection (matching pyannote format)
             csv_file = f"{output_file}.csv"
             df = pd.DataFrame(rows)
+            df.sort_values(["start", "end"], inplace=True)
             df.to_csv(csv_file, index=False)
             print(f"Saved diarization results to {rttm_file} and {csv_file}")
         else:
@@ -180,10 +245,13 @@ def main():
     
     parser = argparse.ArgumentParser(description='Speaker Diarization using 3D-Speaker')
     parser.add_argument('audio_file', help='Path to the audio file')
-    parser.add_argument('--output_dir', help='Directory to save output files')
+    parser.add_argument('--output', default=None, help='Base path for output files (will create .rttm and .csv)')
     parser.add_argument('--include_overlap', action='store_true', 
                        help='Include overlapping speech detection (requires HuggingFace token)')
     parser.add_argument('--hf_token', help='HuggingFace access token (required for overlap detection)')
+    parser.add_argument('--speaker_db', help='Path to speaker database file (optional)')
+    parser.add_argument('--speaker_threshold', type=float, default=0.75, 
+                       help='Similarity threshold for speaker matching')
     
     args = parser.parse_args()
     
@@ -191,18 +259,25 @@ def main():
         print("Warning: --hf_token is required when using --include_overlap")
         args.include_overlap = False
     
+    # Set default output path if not provided
+    if args.output is None:
+        base_name = os.path.splitext(args.audio_file)[0]
+        args.output = f"{base_name}_3dspeaker"
+    
     try:
         # Perform diarization
-        segments = threed_speaker_diarize(
+        result = threed_speaker_diarize(
             args.audio_file, 
-            args.output_dir, 
+            args.output,
+            speaker_database=None,  # Could load from speaker_db file if needed
             include_overlap=args.include_overlap
         )
         
         # Print results
+        segments = result.get('segments', [])
         print(f"\nDiarization completed! Found {len(segments)} segments:")
-        for i, (start, end, speaker) in enumerate(segments):
-            print(f"  Segment {i+1}: {start:.2f}s - {end:.2f}s, Speaker {speaker}")
+        for i, segment in enumerate(segments):
+            print(f"  Segment {i+1}: {segment['start']:.2f}s - {segment['end']:.2f}s, {segment['speaker']}")
             
     except Exception as e:
         print(f"Error during diarization: {e}")
