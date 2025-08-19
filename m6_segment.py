@@ -461,7 +461,7 @@ def find_silence_for_subsegment_start(silences: List[Sil], segment_start_ms: int
     best_distance = float('inf')
     
     for s_start, s_end, s_dur in silences:
-        # Case 1: Silence covers the segment start point - use the silence end
+        # Case 1: Silence covers the segment start point - use silence end (no buffer)
         if s_start <= segment_start_ms <= s_end and s_dur >= 50:
             return s_end
         
@@ -860,6 +860,32 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
         s['subs'] = align_subsegments_with_silences(s['subs_merged'], silences)
         # Split subsegments that contain significant internal silences
         s['subs'] = split_subsegments_on_internal_silence(s['subs'], silences, tokens)
+        
+        # Also align main segment boundaries with silences
+        main_seg = s['main']
+        aligned_main_start = find_silence_for_subsegment_start(silences, main_seg.start_ms)
+        aligned_main_end = find_silence_for_subsegment_end(silences, main_seg.end_ms)
+        
+        if aligned_main_start is not None:
+            new_start_ms = aligned_main_start
+        else:
+            new_start_ms = main_seg.start_ms
+            
+        if aligned_main_end is not None:
+            new_end_ms = aligned_main_end
+        else:
+            new_end_ms = main_seg.end_ms
+            
+        # Update main segment with aligned boundaries
+        s['main'] = Segment(
+            speaker=main_seg.speaker,
+            text=main_seg.text,
+            start_ms=new_start_ms,
+            end_ms=new_end_ms,
+            min_conf=main_seg.min_conf,
+            pad_start_ms=main_seg.pad_start_ms,
+            pad_end_ms=main_seg.pad_end_ms
+        )
 
     # Store raw segments (before merging) for debugging
     raw_segments_data = []
