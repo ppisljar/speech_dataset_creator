@@ -465,7 +465,11 @@ def find_silence_for_subsegment_start(silences: List[Sil], segment_start_ms: int
         if s_start <= segment_start_ms <= s_end and s_dur >= 50:
             return s_end
         
-        # Case 2: Silence ended before segment start - find the closest one
+        # Case 2: Silence starts very close after segment start (within 100ms) - use silence end
+        elif s_start > segment_start_ms and (s_start - segment_start_ms) <= 100 and s_dur >= 200:
+            return s_end
+        
+        # Case 3: Silence ended before segment start - find the closest one
         elif s_end <= segment_start_ms:
             distance = segment_start_ms - s_end
             if distance <= 500 and distance < best_distance:  # Within 500ms
