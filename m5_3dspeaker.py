@@ -72,18 +72,18 @@ def find_closest_speaker(embedding, speaker_database, threshold=0.8):
     return closest_speaker
 
 
-def threed_speaker_diarize(audio_file_path, output_dir=None, speaker_database=None, include_overlap=False):
+def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=None, include_overlap=False):
     """
     Perform speaker diarization using 3D-Speaker.
     
     Args:
         audio_file_path (str): Path to the audio file
-        output_dir (str): Directory to save output files (optional)
+        output_file (str): Base path for output files (will create .rttm and .csv)
         speaker_database (dict): Dictionary mapping speaker names to embeddings (optional)
         include_overlap (bool): Whether to include overlapping speech detection
         
     Returns:
-        list: List of segments in format [[start_time, end_time, speaker_id], ...]
+        dict: Dictionary with segments, rttm_file, and csv_file paths
     """
     if not THREED_SPEAKER_AVAILABLE:
         raise ImportError("3D-Speaker is not available. Please install it with: pip install 3dspeaker")
@@ -106,40 +106,50 @@ def threed_speaker_diarize(audio_file_path, output_dir=None, speaker_database=No
         
         # Convert results to the expected format
         segments = []
+        rows = []
         for segment in diarization_result:
             start_time, end_time, speaker_id = segment
             segments.append([start_time, end_time, speaker_id])
+            
+            # Create row data for CSV output (matching pyannote format)
+            rows.append({
+                'start': start_time,
+                'end': end_time,
+                'duration': end_time - start_time,
+                'speaker': f"SPEAKER_{speaker_id:02d}",
+                'speaker_id': speaker_id
+            })
         
-        # Save output files if output_dir is specified
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+        # Generate output files if output_file is specified
+        if output_file:
+            # Create directory if it doesn't exist
+            output_dir = os.path.dirname(output_file)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             
             # Save RTTM file
-            base_name = Path(audio_file_path).stem
-            rttm_path = os.path.join(output_dir, f"{base_name}_3dspeaker.rttm")
-            pipeline.save_diar_output(rttm_path, wav_id=base_name, output_field_labels=diarization_result)
+            base_name = os.path.basename(audio_file_path).rsplit('.', 1)[0]
+            rttm_file = f"{output_file}.rttm"
+            pipeline.save_diar_output(rttm_file, wav_id=base_name, output_field_labels=diarization_result)
             
-            # Save CSV file for inspection
-            csv_path = os.path.join(output_dir, f"{base_name}_3dspeaker.csv")
-            df_data = []
-            for start_time, end_time, speaker_id in segments:
-                df_data.append({
-                    'start': start_time,
-                    'end': end_time,
-                    'duration': end_time - start_time,
-                    'speaker': f"SPEAKER_{speaker_id:02d}",
-                    'speaker_id': speaker_id
-                })
-            
-            df = pd.DataFrame(df_data)
-            df.to_csv(csv_path, index=False)
-            print(f"Saved diarization results to {rttm_path} and {csv_path}")
+            # Save CSV file for inspection (matching pyannote format)
+            csv_file = f"{output_file}.csv"
+            df = pd.DataFrame(rows)
+            df.to_csv(csv_file, index=False)
+            print(f"Saved diarization results to {rttm_file} and {csv_file}")
+        else:
+            rttm_file = None
+            csv_file = None
         
         # Clean up converted file if we created one
         if wav_path != audio_file_path and os.path.exists(wav_path):
             os.remove(wav_path)
         
-        return segments
+        return {
+            "segments": rows,
+            "rttm_file": rttm_file,
+            "csv_file": csv_file
+        }
         
     except Exception as e:
         # Clean up converted file if we created one
@@ -148,20 +158,20 @@ def threed_speaker_diarize(audio_file_path, output_dir=None, speaker_database=No
         raise e
 
 
-def pyannote(audio_file_path, output_dir=None, speaker_database=None):
+def pyannote(audio_file_path, output_file=None, speaker_database=None):
     """
     Compatibility wrapper for the original pyannote function.
     This function maintains the same interface as the original pyannote module.
     
     Args:
         audio_file_path (str): Path to the audio file
-        output_dir (str): Directory to save output files (optional)
+        output_file (str): Base path for output files (will create .rttm and .csv)
         speaker_database (dict): Dictionary mapping speaker names to embeddings (optional)
         
     Returns:
-        list: List of segments in format [[start_time, end_time, speaker_id], ...]
+        dict: Dictionary with segments, rttm_file, and csv_file paths
     """
-    return threed_speaker_diarize(audio_file_path, output_dir, speaker_database, include_overlap=False)
+    return threed_speaker_diarize(audio_file_path, output_file, speaker_database, include_overlap=False)
 
 
 def main():

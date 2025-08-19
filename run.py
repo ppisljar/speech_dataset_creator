@@ -97,16 +97,26 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
             else:
                 # Run 3D-Speaker on the split audio file
                 print(f"Running 3D-Speaker on {split_path}")
-                from m5_3dspeaker import three_d_speaker
-                three_d_speaker(split_path, output_dir=os.path.dirname(threedspeaker_file))
+                try:
+                    from m5_3dspeaker import threed_speaker_diarize
+                    threed_speaker_diarize(split_path, output_file=threedspeaker_file)
+                except ImportError as e:
+                    print(f"Warning: Could not import 3D-Speaker: {e}")
+                except Exception as e:
+                    print(f"Error running 3D-Speaker: {e}")
 
             if not override and os.path.exists(wespeaker_file + '.csv'):
-                print(f"Wespeaker file already exists, skipping Wespeaker processing.")
+                print(f"WeSpeaker file already exists, skipping WeSpeaker processing.")
             else:
-                # Run Wespeaker on the split audio file
-                print(f"Running Wespeaker on {split_path}")
-                from m5_wespeaker import wespeaker
-                wespeaker(split_path, output_dir=os.path.dirname(wespeaker_file))
+                # Run WeSpeaker on the split audio file
+                print(f"Running WeSpeaker on {split_path}")
+                try:
+                    from m5_wespeaker import wespeaker_diarize
+                    wespeaker_diarize(split_path, output_file=wespeaker_file)
+                except ImportError as e:
+                    print(f"Warning: Could not import WeSpeaker: {e}")
+                except Exception as e:
+                    print(f"Error running WeSpeaker: {e}")
 
             if not override and os.path.exists(segments_file):
                 print(f"Segments file already exists, skipping segmentation.")
