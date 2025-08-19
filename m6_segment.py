@@ -503,39 +503,85 @@ def find_silence_for_subsegment_end(silences: List[Sil], segment_end_ms: int) ->
 def align_subsegments_with_silences(subsegments: List[Segment], silences: List[Sil]) -> List[Segment]:
     """
     Align subsegments with silence boundaries according to the specified rules.
+    Ensures that adjacent subsegments align to the same silence boundaries to prevent gaps/overlaps.
     """
     if not subsegments:
         return subsegments
     
-    aligned_subsegments = []
-    
-    for i, subseg in enumerate(subsegments):
-        # Find aligned start boundary
+    if len(subsegments) == 1:
+        # Single subsegment, align normally
+        subseg = subsegments[0]
         aligned_start = find_silence_for_subsegment_start(silences, subseg.start_ms)
-        if aligned_start is not None:
-            print(f"Aligning start of subsegment {i} from {subseg.start_ms} to {aligned_start} ms")
-            new_start_ms = aligned_start
-        else:
-            new_start_ms = subseg.start_ms
-        
-        # Find aligned end boundary
         aligned_end = find_silence_for_subsegment_end(silences, subseg.end_ms)
-        if aligned_end is not None:
-            print(f"Aligning end of subsegment {i} from {subseg.end_ms} to {aligned_end} ms")
-            new_end_ms = aligned_end
+        
+        new_start_ms = aligned_start if aligned_start is not None else subseg.start_ms
+        new_end_ms = aligned_end if aligned_end is not None else subseg.end_ms
+        
+        if new_end_ms <= new_start_ms:
+            new_end_ms = new_start_ms + 100
+        
+        return [Segment(
+            speaker=subseg.speaker,
+            text=subseg.text,
+            start_ms=new_start_ms,
+            end_ms=new_end_ms,
+            min_conf=subseg.min_conf,
+            pad_start_ms=subseg.pad_start_ms,
+            pad_end_ms=subseg.pad_end_ms
+        )]
+    
+    aligned_subsegments = []
+    next_start_boundary = None  # Track aligned boundary for next subsegment
+    
+    # Process all subsegments, ensuring adjacent ones share silence boundaries
+    for i, subseg in enumerate(subsegments):
+        if i == 0:
+            # First subsegment: align start only
+            aligned_start = find_silence_for_subsegment_start(silences, subseg.start_ms)
+            new_start_ms = aligned_start if aligned_start is not None else subseg.start_ms
+            print(f"Aligning start of first subsegment from {subseg.start_ms} to {new_start_ms} ms")
         else:
-            new_end_ms = subseg.end_ms
+            # For subsequent subsegments, use the boundary set by previous subsegment
+            new_start_ms = next_start_boundary if next_start_boundary is not None else subseg.start_ms
+            print(f"Setting start of subsegment {i} to {new_start_ms} ms (from previous boundary)")
+        
+        if i == len(subsegments) - 1:
+            # Last subsegment: align end only
+            aligned_end = find_silence_for_subsegment_end(silences, subseg.end_ms)
+            new_end_ms = aligned_end if aligned_end is not None else subseg.end_ms
+            print(f"Aligning end of last subsegment from {subseg.end_ms} to {new_end_ms} ms")
+            next_start_boundary = None  # No next subsegment
+        else:
+            # For intermediate subsegments, find the best silence boundary between this and next subsegment
+            next_subseg = subsegments[i + 1]
+            
+            # Find silences in the gap between current subsegment end and next subsegment start
+            gap_start = subseg.end_ms
+            gap_end = next_subseg.start_ms
+            
+            # Look for the best silence in this gap
+            best_silence = longest_silence_in_range(silences, gap_start, gap_end)
+            
+            if best_silence and best_silence[2] >= 50:  # At least 50ms silence
+                # Split the silence: this subsegment ends at silence_start + 25ms
+                # next subsegment will start at silence_end - 25ms  
+                silence_start, silence_end, silence_dur = best_silence
+                new_end_ms = silence_start + 25
+                next_start_boundary = silence_end - 25
+                print(f"Aligning subsegment {i} end to silence: {subseg.end_ms} -> {new_end_ms} ms")
+                print(f"Next subsegment {i+1} will start at: {next_start_boundary} ms")
+            else:
+                # No good silence found, use original end and set next start accordingly
+                new_end_ms = subseg.end_ms
+                next_start_boundary = subseg.end_ms  # No gap
+                print(f"No silence boundary found for subsegment {i}, keeping original end: {new_end_ms} ms")
         
         # Ensure start comes before end
         if new_end_ms <= new_start_ms:
             print(f"Warning: Adjusting end time for subsegment {i} from {new_end_ms} to {new_start_ms + 100} ms")
             new_end_ms = new_start_ms + 100  # Minimum 100ms duration
-        
-        # Ensure subsegments don't overlap with previous one
-        # if i > 0 and new_start_ms < aligned_subsegments[-1].end_ms:
-        #     new_start_ms = aligned_subsegments[-1].end_ms
-        #     if new_end_ms <= new_start_ms:
-        #         new_end_ms = new_start_ms + 100
+            if next_start_boundary is not None:
+                next_start_boundary = new_end_ms  # Update next boundary accordingly
         
         aligned_subseg = Segment(
             speaker=subseg.speaker,
