@@ -598,6 +598,131 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
     return aligned_subsegments
 
 
+def split_subsegments_on_internal_silence(subsegments: List[Segment], silences: List[Sil], tokens: List[Token]) -> List[Segment]:
+    """
+    Split subsegments that contain significant internal silences and have gaps in transcriptions.
+    
+    :param subsegments: List of subsegments to potentially split
+    :param silences: List of detected silences 
+    :param tokens: List of all tokens for finding transcription gaps
+    :return: List of subsegments with internal silences split
+    """
+    MIN_INTERNAL_SILENCE_MS = 500  # Minimum silence duration to consider for splitting
+    MIN_SUBSEGMENT_DURATION_MS = 1000  # Minimum duration for each resulting subsegment
+    
+    result_subsegments = []
+    
+    for subseg in subsegments:
+        # Find silences that are completely within this subsegment
+        internal_silences = []
+        for s_start, s_end, s_dur in silences:
+            if (s_start >= subseg.start_ms + 100 and s_end <= subseg.end_ms - 100 and 
+                s_dur >= MIN_INTERNAL_SILENCE_MS):
+                internal_silences.append((s_start, s_end, s_dur))
+        
+        if not internal_silences:
+            # No significant internal silence, keep subsegment as is
+            result_subsegments.append(subseg)
+            continue
+        
+        # Check if there are corresponding gaps in transcriptions
+        subseg_tokens = [tok for tok in tokens if 
+                        tok.speaker == subseg.speaker and 
+                        tok.start_ms >= subseg.start_ms and 
+                        tok.end_ms <= subseg.end_ms]
+        
+        if not subseg_tokens:
+            # No tokens in this subsegment, keep as is
+            result_subsegments.append(subseg)
+            continue
+        
+        # Find the best silence to split on (longest one that has a transcription gap)
+        best_split_silence = None
+        best_gap_duration = 0
+        
+        for silence in internal_silences:
+            s_start, s_end, s_dur = silence
+            
+            # Find tokens before and after this silence
+            tokens_before = [tok for tok in subseg_tokens if tok.end_ms <= s_start]
+            tokens_after = [tok for tok in subseg_tokens if tok.start_ms >= s_end]
+            
+            if tokens_before and tokens_after:
+                # There are tokens both before and after this silence
+                # Check the gap between last token before silence and first token after
+                last_before = max(tokens_before, key=lambda t: t.end_ms)
+                first_after = min(tokens_after, key=lambda t: t.start_ms)
+                
+                # Calculate transcription gap
+                transcription_gap = first_after.start_ms - last_before.end_ms
+                
+                # This silence is a good candidate if there's a significant transcription gap
+                if transcription_gap >= 300:  # At least 300ms gap in transcriptions
+                    if transcription_gap > best_gap_duration:
+                        best_gap_duration = transcription_gap
+                        best_split_silence = silence
+        
+        if best_split_silence:
+            # Split the subsegment at this silence
+            s_start, s_end, s_dur = best_split_silence
+            
+            # Calculate split points: middle of the silence
+            split_point = s_start + (s_dur // 2)
+            
+            # Create two subsegments
+            first_part_end = split_point - 50  # End first part 50ms before split point
+            second_part_start = split_point + 50  # Start second part 50ms after split point
+            
+            # Ensure minimum durations
+            first_duration = first_part_end - subseg.start_ms
+            second_duration = subseg.end_ms - second_part_start
+            
+            if (first_duration >= MIN_SUBSEGMENT_DURATION_MS and 
+                second_duration >= MIN_SUBSEGMENT_DURATION_MS):
+                
+                # Get tokens for each part
+                first_tokens = [tok for tok in subseg_tokens if tok.end_ms <= first_part_end]
+                second_tokens = [tok for tok in subseg_tokens if tok.start_ms >= second_part_start]
+                
+                if first_tokens and second_tokens:
+                    # Create first subsegment
+                    first_text = detokenize_text(first_tokens)
+                    first_conf = min(tok.confidence for tok in first_tokens)
+                    first_subseg = Segment(
+                        speaker=subseg.speaker,
+                        text=first_text,
+                        start_ms=subseg.start_ms,
+                        end_ms=first_part_end,
+                        min_conf=first_conf,
+                        pad_start_ms=subseg.pad_start_ms,
+                        pad_end_ms=0
+                    )
+                    
+                    # Create second subsegment  
+                    second_text = detokenize_text(second_tokens)
+                    second_conf = min(tok.confidence for tok in second_tokens)
+                    second_subseg = Segment(
+                        speaker=subseg.speaker,
+                        text=second_text,
+                        start_ms=second_part_start,
+                        end_ms=subseg.end_ms,
+                        min_conf=second_conf,
+                        pad_start_ms=0,
+                        pad_end_ms=subseg.pad_end_ms
+                    )
+                    
+                    print(f"Split subsegment at silence gap: {subseg.start_ms}-{subseg.end_ms} -> "
+                          f"{first_subseg.start_ms}-{first_subseg.end_ms} and {second_subseg.start_ms}-{second_subseg.end_ms}")
+                    
+                    result_subsegments.extend([first_subseg, second_subseg])
+                    continue
+        
+        # If we get here, we couldn't split the subsegment, keep it as is
+        result_subsegments.append(subseg)
+    
+    return result_subsegments
+
+
 def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
     """
     Merge adjacent subsegments when there's no gap between them.
@@ -703,6 +828,8 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
 
     for s in segments:
         s['subs'] = align_subsegments_with_silences(s['subs'], silences)
+        # Split subsegments that contain significant internal silences
+        s['subs'] = split_subsegments_on_internal_silence(s['subs'], silences, tokens)
 
     # Convert segments to serializable format
     serializable_segments = []
