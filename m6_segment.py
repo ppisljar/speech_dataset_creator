@@ -455,24 +455,22 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
 def find_silence_for_subsegment_start(silences: List[Sil], segment_start_ms: int) -> Optional[int]:
     """
     Find the appropriate silence boundary for subsegment start.
-    Returns the end of the closest silence that covers or precedes the segment start.
+    For subsegment starts, we want to start AFTER silences end.
     """
     best_silence_end = None
+    best_distance = float('inf')
     
     for s_start, s_end, s_dur in silences:
-        # Case 1: Silence covers the segment start point
-        if s_start <= segment_start_ms <= s_end and s_dur >= 100:  # At least 100ms silence
-            # Be more conservative: use the segment start itself if it's well within the silence,
-            # otherwise use a point closer to the segment start
-            if segment_start_ms - s_start >= 50:  # At least 50ms into the silence
-                return segment_start_ms
-            else:
-                return max(s_start + 25, segment_start_ms - 25)  # Stay close to segment start
+        # Case 1: Silence covers the segment start point - use the silence end
+        if s_start <= segment_start_ms <= s_end and s_dur >= 50:
+            return s_end
         
-        # Case 2: Silence ended before segment start (but close to it)
-        elif s_end <= segment_start_ms and (segment_start_ms - s_end) <= 200:  # Within 200ms
-            if best_silence_end is None or s_end > best_silence_end:
+        # Case 2: Silence ended before segment start - find the closest one
+        elif s_end <= segment_start_ms:
+            distance = segment_start_ms - s_end
+            if distance <= 500 and distance < best_distance:  # Within 500ms
                 best_silence_end = s_end
+                best_distance = distance
     
     return best_silence_end
 
@@ -480,24 +478,22 @@ def find_silence_for_subsegment_start(silences: List[Sil], segment_start_ms: int
 def find_silence_for_subsegment_end(silences: List[Sil], segment_end_ms: int) -> Optional[int]:
     """
     Find the appropriate silence boundary for subsegment end.
-    Returns the start of the closest silence that covers or follows the segment end.
+    For subsegment ends, we want to end BEFORE silences start.
     """
     best_silence_start = None
+    best_distance = float('inf')
     
     for s_start, s_end, s_dur in silences:
-        # Case 1: Silence covers the segment end point
-        if s_start <= segment_end_ms <= s_end and s_dur >= 100:  # At least 100ms silence
-            # Be more conservative: use the segment end itself if it's well within the silence,
-            # otherwise use a point closer to the segment end
-            if s_end - segment_end_ms >= 50:  # At least 50ms remaining in the silence
-                return segment_end_ms
-            else:
-                return min(s_end - 25, segment_end_ms + 25)  # Stay close to segment end
+        # Case 1: Silence covers the segment end point - use the silence start
+        if s_start <= segment_end_ms <= s_end and s_dur >= 50:
+            return s_start
         
-        # Case 2: Silence starts after segment end (but close to it)
-        elif s_start >= segment_end_ms and (s_start - segment_end_ms) <= 200:  # Within 200ms
-            if best_silence_start is None or s_start < best_silence_start:
+        # Case 2: Silence starts after segment end - find the closest one
+        elif s_start >= segment_end_ms:
+            distance = s_start - segment_end_ms
+            if distance <= 500 and distance < best_distance:  # Within 500ms
                 best_silence_start = s_start
+                best_distance = distance
     
     return best_silence_start
 
@@ -692,10 +688,10 @@ def split_subsegments_on_internal_silence(subsegments: List[Segment], silences: 
                 
                 # Split if there's any meaningful gap OR if silence is very long
                 if transcription_gap >= MIN_TRANSCRIPTION_GAP_MS or s_dur >= 300:
-                    # Calculate split points
+                    # Calculate split points - place boundaries closer to silence edges
                     split_point = s_start + (s_dur // 2)
-                    first_part_end = split_point - 25
-                    second_part_start = split_point + 25
+                    first_part_end = s_start + min(50, s_dur // 4)  # End closer to silence start
+                    second_part_start = s_end - min(50, s_dur // 4)  # Start closer to silence end
                     
                     # Check duration requirements
                     first_duration = first_part_end - subseg.start_ms
