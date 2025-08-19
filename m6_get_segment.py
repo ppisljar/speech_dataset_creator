@@ -36,17 +36,9 @@ def load_segments(segments_json_path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
-def renumber_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Renumber segments starting from 1."""
-    renumbered_segments = []
-    
-    for i, segment in enumerate(segments, 1):
-        # Copy the segment and update the seg_idx
-        renumbered_segment = segment.copy()
-        renumbered_segment['seg_idx'] = i
-        renumbered_segments.append(renumbered_segment)
-    
-    return renumbered_segments
+def preserve_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Preserve segments as-is without renumbering."""
+    return segments
 
 
 def main():
@@ -100,15 +92,15 @@ def main():
     
     print(f"Extracting segments with seg_idx {args.start_segment} to {args.end_segment} ({len(selected_segments)} segments)")
     
-    # Renumber the selected segments
-    renumbered_segments = renumber_segments(selected_segments)
+    # Preserve the selected segments with original seg_idx
+    preserved_segments = preserve_segments(selected_segments)
     
     # Create new segments JSON file
     output_segments_json = Path(f"{args.output_prefix}_segments.json")
     new_segments_data = {
-        'segments': renumbered_segments,
+        'segments': preserved_segments,
         'audio_path': original_audio_path,
-        'total_segments': len(renumbered_segments),
+        'total_segments': len(preserved_segments),
         'original_file': str(args.segments_json),
         'extracted_range': {
             'start_segment': args.start_segment,
@@ -138,15 +130,15 @@ def main():
             if args.start_segment <= seg_idx <= args.end_segment:
                 raw_selected_segments.append(segment)
         
-        # Renumber the raw segments
-        raw_renumbered_segments = renumber_segments(raw_selected_segments)
+        # Preserve the raw segments with original seg_idx
+        raw_preserved_segments = preserve_segments(raw_selected_segments)
         
         # Create new raw segments JSON file
         output_raw_segments_json = Path(f"{args.output_prefix}_segments_raw.json")
         new_raw_segments_data = {
-            'segments': raw_renumbered_segments,
+            'segments': raw_preserved_segments,
             'audio_path': original_audio_path,
-            'total_segments': len(raw_renumbered_segments),
+            'total_segments': len(raw_preserved_segments),
             'original_file': str(original_raw_file),
             'extracted_range': {
                 'start_segment': args.start_segment,
