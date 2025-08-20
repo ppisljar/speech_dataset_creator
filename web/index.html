@@ -71,6 +71,10 @@
                 <label for="modalMinSilenceLength">Minimum Silence Length (ms):</label>
                 <input type="number" id="modalMinSilenceLength" value="500" step="100" min="100">
             </div>
+            <div class="form-group">
+                <label for="modalMaxSpeakers">Max Speakers (0 = auto-detect):</label>
+                <input type="number" id="modalMaxSpeakers" value="0" step="1" min="0" max="20">
+            </div>
             <div class="button-group">
                 <button onclick="closeModal('addProjectModal')">Cancel</button>
                 <button onclick="createProjectWithSettings()">Create Project</button>
@@ -96,6 +100,10 @@
             <div class="form-group">
                 <label for="editMinSilenceLength">Minimum Silence Length (ms):</label>
                 <input type="number" id="editMinSilenceLength" value="500" step="100" min="100">
+            </div>
+            <div class="form-group">
+                <label for="editMaxSpeakers">Max Speakers (0 = auto-detect):</label>
+                <input type="number" id="editMaxSpeakers" value="0" step="1" min="0" max="20">
             </div>
             <div class="button-group">
                 <button onclick="closeModal('editProjectModal')">Cancel</button>

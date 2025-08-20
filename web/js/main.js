@@ -209,6 +209,7 @@ function showAddProjectModal() {
     document.getElementById('modalProjectName').value = '';
     document.getElementById('modalSilenceThreshold').value = '-40';
     document.getElementById('modalMinSilenceLength').value = '500';
+    document.getElementById('modalMaxSpeakers').value = '0';
     document.getElementById('addProjectModal').style.display = 'block';
 }
 
@@ -228,15 +229,18 @@ async function showEditProjectModal() {
         if (response.ok) {
             document.getElementById('editSilenceThreshold').value = settings.silenceThreshold || -40;
             document.getElementById('editMinSilenceLength').value = settings.minSilenceLength || 500;
+            document.getElementById('editMaxSpeakers').value = settings.maxSpeakers || 0;
         } else {
             // Use defaults if settings not found
             document.getElementById('editSilenceThreshold').value = '-40';
             document.getElementById('editMinSilenceLength').value = '500';
+            document.getElementById('editMaxSpeakers').value = '0';
         }
     } catch (error) {
         // Use defaults if error loading settings
         document.getElementById('editSilenceThreshold').value = '-40';
         document.getElementById('editMinSilenceLength').value = '500';
+        document.getElementById('editMaxSpeakers').value = '0';
         podcastManager.showMessage('Could not load project settings, using defaults', true);
     }
     
@@ -263,6 +267,7 @@ async function createProjectWithSettings() {
     const name = document.getElementById('modalProjectName').value.trim();
     const silenceThreshold = document.getElementById('modalSilenceThreshold').value;
     const minSilenceLength = document.getElementById('modalMinSilenceLength').value;
+    const maxSpeakers = document.getElementById('modalMaxSpeakers').value;
     
     if (!name) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -279,7 +284,8 @@ async function createProjectWithSettings() {
                 name: name,
                 settings: {
                     silenceThreshold: parseFloat(silenceThreshold),
-                    minSilenceLength: parseInt(minSilenceLength)
+                    minSilenceLength: parseInt(minSilenceLength),
+                    maxSpeakers: parseInt(maxSpeakers)
                 }
             })
         });
@@ -306,6 +312,7 @@ async function updateProjectWithSettings() {
     const newName = document.getElementById('editProjectName').value.trim();
     const silenceThreshold = document.getElementById('editSilenceThreshold').value;
     const minSilenceLength = document.getElementById('editMinSilenceLength').value;
+    const maxSpeakers = document.getElementById('editMaxSpeakers').value;
     
     if (!newName) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -322,7 +329,8 @@ async function updateProjectWithSettings() {
                 name: newName,
                 settings: {
                     silenceThreshold: parseFloat(silenceThreshold),
-                    minSilenceLength: parseInt(minSilenceLength)
+                    minSilenceLength: parseInt(minSilenceLength),
+                    maxSpeakers: parseInt(maxSpeakers)
                 }
             })
         });

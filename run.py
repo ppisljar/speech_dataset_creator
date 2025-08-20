@@ -41,7 +41,12 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     # Show silence detection settings being used
     silence_thresh = settings.get('silenceThreshold', -30)
     min_silence_len = settings.get('minSilenceLength', 100)
+    max_speakers = settings.get('maxSpeakers', 0)
     print(f"Silence detection settings: threshold={silence_thresh}dB, min_length={min_silence_len}ms")
+    if max_speakers > 0:
+        print(f"Speaker diarization settings: max_speakers={max_speakers}")
+    else:
+        print(f"Speaker diarization settings: max_speakers=auto")
 
     # in temp folder we create a cleaned audio file and temp_folder/<file_name>/ where we store all the split audio files
     file_temp_dir = Path(temp_dir) # Path(os.path.join(temp_dir, file_name))
@@ -103,7 +108,9 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             else:
                 # Run pyannote on the split audio file
                 print(f"Running pyannote on {split_path}")
-                pyannote(split_path, pyannote_file, speaker_db=speaker_db_file)
+                # Determine max_speakers parameter - if 0, use None (auto-detect)
+                max_speakers_param = max_speakers if max_speakers > 0 else None
+                pyannote(split_path, pyannote_file, max_speakers=max_speakers_param, speaker_db=speaker_db_file)
 
             if not override and os.path.exists(threedspeaker_file + '.csv'):
                 print(f"3D-Speaker file already exists, skipping 3D-Speaker processing.")
@@ -112,7 +119,9 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                 print(f"Running 3D-Speaker on {split_path}")
                 try:
                     from m5_3dspeaker import threed_speaker_diarize
-                    threed_speaker_diarize(split_path, output_file=threedspeaker_file)
+                    # Determine max_speakers parameter - if 0, use None (auto-detect)
+                    max_speakers_param = max_speakers if max_speakers > 0 else None
+                    threed_speaker_diarize(split_path, output_file=threedspeaker_file, max_speakers=max_speakers_param)
                 except ImportError as e:
                     print(f"Warning: Could not import 3D-Speaker: {e}")
                 except Exception as e:
@@ -125,7 +134,9 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                 print(f"Running WeSpeaker on {split_path}")
                 try:
                     from m5_wespeaker import wespeaker_diarize
-                    wespeaker_diarize(split_path, output_file=wespeaker_file)
+                    # Determine max_speakers parameter - if 0, use None (auto-detect)
+                    max_speakers_param = max_speakers if max_speakers > 0 else None
+                    wespeaker_diarize(split_path, output_file=wespeaker_file, max_speakers=max_speakers_param)
                 except ImportError as e:
                     print(f"Warning: Could not import WeSpeaker: {e}")
                 except Exception as e:

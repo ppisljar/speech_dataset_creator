@@ -73,7 +73,7 @@ def find_closest_speaker(embedding, speaker_database, threshold=0.8):
     return closest_speaker
 
 
-def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=None, include_overlap=False):
+def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=None, include_overlap=False, max_speakers=None):
     """
     Perform speaker diarization using 3D-Speaker.
     
@@ -82,6 +82,7 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
         output_file (str): Base path for output files (will create .rttm and .csv)
         speaker_database (dict): Dictionary mapping speaker names to embeddings (optional)
         include_overlap (bool): Whether to include overlapping speech detection
+        max_speakers (int): Maximum number of speakers (optional, if None uses auto-detect)
         
     Returns:
         dict: Dictionary with segments, rttm_file, and csv_file paths
@@ -106,7 +107,7 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
             device=device_str,  # Use GPU if available
             include_overlap=include_overlap,
             hf_access_token=None,  # Not needed unless include_overlap is True
-            speaker_num=None,  # Auto-detect number of speakers
+            speaker_num=max_speakers,  # Use max_speakers parameter if provided
             model_cache_dir=None  # Use default cache directory
         )
         
@@ -223,7 +224,7 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
         raise e
 
 
-def pyannote(audio_file_path, output_file=None, speaker_database=None):
+def pyannote(audio_file_path, output_file=None, speaker_database=None, max_speakers=None):
     """
     Compatibility wrapper for the original pyannote function.
     This function maintains the same interface as the original pyannote module.
@@ -232,11 +233,12 @@ def pyannote(audio_file_path, output_file=None, speaker_database=None):
         audio_file_path (str): Path to the audio file
         output_file (str): Base path for output files (will create .rttm and .csv)
         speaker_database (dict): Dictionary mapping speaker names to embeddings (optional)
+        max_speakers (int): Maximum number of speakers (optional)
         
     Returns:
         dict: Dictionary with segments, rttm_file, and csv_file paths
     """
-    return threed_speaker_diarize(audio_file_path, output_file, speaker_database, include_overlap=False)
+    return threed_speaker_diarize(audio_file_path, output_file, speaker_database, include_overlap=False, max_speakers=max_speakers)
 
 
 def main():
@@ -252,6 +254,8 @@ def main():
     parser.add_argument('--speaker_db', help='Path to speaker database file (optional)')
     parser.add_argument('--speaker_threshold', type=float, default=0.75, 
                        help='Similarity threshold for speaker matching')
+    parser.add_argument('--max_speakers', type=int, default=None,
+                       help='Maximum number of speakers (optional, if not provided uses auto-detect)')
     
     args = parser.parse_args()
     
@@ -270,7 +274,8 @@ def main():
             args.audio_file, 
             args.output,
             speaker_database=None,  # Could load from speaker_db file if needed
-            include_overlap=args.include_overlap
+            include_overlap=args.include_overlap,
+            max_speakers=args.max_speakers
         )
         
         # Print results
