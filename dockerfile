@@ -17,15 +17,15 @@ RUN apt-get update && apt-get install -y \
     git \
     wget \
     curl \
+    nano \
     build-essential \
     libsndfile1 \
     libsox-fmt-all \
-    sox \
+    sox libsox-dev \
     portaudio19-dev \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install -y libsox libsox-dev
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
@@ -38,10 +38,21 @@ RUN git clone https://github.com/ppisljar/speech_dataset_creator.git /workspace/
 # Create startup script for vast.ai
 RUN echo '#!/bin/bash' > /workspace/start.sh \
     && echo '' >> /workspace/start.sh \
+    && echo '# Pull fresh code from GitHub' >> /workspace/start.sh \
+    && echo 'echo "Pulling fresh code from GitHub..."' >> /workspace/start.sh \
+    && echo 'cd /workspace/sdc' >> /workspace/start.sh \
+    && echo 'git fetch origin' >> /workspace/start.sh \
+    && echo 'git reset --hard origin/main' >> /workspace/start.sh \
+    && echo 'git clean -fd' >> /workspace/start.sh \
+    && echo '' >> /workspace/start.sh \
+    && echo '# Check and install any missing/updated Python dependencies' >> /workspace/start.sh \
+    && echo 'echo "Checking for updated dependencies..."' >> /workspace/start.sh \
+    && echo 'pip install --no-cache-dir -r requirements.txt --upgrade' >> /workspace/start.sh \
+    && echo '' >> /workspace/start.sh \
     && echo '# Start the Flask server' >> /workspace/start.sh \
     && echo 'echo "Starting Speech Dataset Creator..."' >> /workspace/start.sh \
     && echo 'echo "Web interface will be available at http://localhost:${FLASK_PORT:-5000}"' >> /workspace/start.sh \
-    && echo 'cd /workspace/sdc && python _server.py' >> /workspace/start.sh \
+    && echo 'python _server.py' >> /workspace/start.sh \
     && chmod +x /workspace/start.sh
 
 # Set proper permissions

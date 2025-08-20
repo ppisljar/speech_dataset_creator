@@ -25,6 +25,24 @@ def extract_mp3_links(page_html):
     mp3_urls = [button['data-audio'] for button in soup.find_all('button', {'data-audio': True})]
     return mp3_urls
 
+# Function to extract total number of pages from pagination
+def extract_total_pages(page_html):
+    soup = BeautifulSoup(page_html, 'html.parser')
+    # Look for the pagination element with "Stran 1 od XX" pattern
+    current_page_li = soup.find('li', class_='current')
+    if current_page_li:
+        text = current_page_li.get_text(strip=True)
+        # Parse text like "Si na strani Stran 1 od 11" to extract the total pages
+        if 'od' in text:
+            try:
+                # Split by 'od' and get the number after it
+                total_pages = int(text.split('od')[-1].strip())
+                return total_pages
+            except (ValueError, IndexError):
+                print(f"Could not parse total pages from: {text}")
+                return None
+    return None
+
 # Function to sanitize URL and get the file name without query params
 def get_filename_from_url(url):
     # Parse the URL to get the path
@@ -69,14 +87,50 @@ def generate_sequential_name(index):
     return f"pod_{index:05d}.mp3"
 
 # Main function to scrape and download MP3s from all pages
-async def get_podcasts(base_url, output_dir='./aidea', max_pages=100, use_custom_names=False, override=False):
+async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_names=False, override=False):
     # Create the 'aidea' folder if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
     async with aiohttp.ClientSession() as session:
         file_index = 1
-        # Loop through pages 1 to max_pages
-        for page_num in range(1, max_pages + 1):
+        total_pages = None
+        
+        # First, fetch the first page to determine total number of pages
+        first_page_url = BASE_URL.format(podcast=base_url, page_num=1)
+        print(f"Fetching first page to determine total number of pages...")
+        first_page_html = await fetch_page(session, first_page_url)
+        
+        if first_page_html is None:
+            print("Error: Could not fetch the first page.")
+            return
+            
+        # Extract total pages from the first page
+        total_pages = extract_total_pages(first_page_html)
+        if total_pages:
+            print(f"Found {total_pages} total pages to process.")
+            # Use the actual total pages, but don't exceed max_pages if specified
+            pages_to_process = min(total_pages, max_pages)
+        else:
+            print(f"Could not determine total pages, using max_pages={max_pages} as fallback.")
+            pages_to_process = max_pages
+        
+        # Process the first page (we already have its HTML)
+        print(f"Processing page 1...")
+        mp3_urls = extract_mp3_links(first_page_html)
+        
+        # Download each MP3 file found on the first page
+        for mp3_url in mp3_urls:
+            if use_custom_names:
+                mp3_name = generate_sequential_name(file_index)
+                file_index += 1
+            else:
+                # Get sanitized filename (without query parameters)
+                mp3_name = get_filename_from_url(mp3_url)
+            mp3_path = os.path.join(output_dir, mp3_name)
+            download_mp3(mp3_url, mp3_path, override=override)
+
+        # Loop through remaining pages (2 to total_pages)
+        for page_num in range(2, pages_to_process + 1):
             page_url = BASE_URL.format(podcast=base_url, page_num=page_num)
             print(f"Fetching page {page_num}...")
             page_html = await fetch_page(session, page_url)
