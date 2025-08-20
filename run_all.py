@@ -30,6 +30,9 @@ Examples:
 """
 
 import os
+
+os.environ['NUMBER_THREADS'] = '32'  # Set to 1 to avoid parallel processing issues
+
 import sys
 import argparse
 import json
