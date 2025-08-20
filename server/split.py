@@ -13,7 +13,28 @@ import urllib.parse
 
 split_bp = Blueprint('split', __name__)
 
-def process_file_background(project_name, filename, file_path, projects_dir, processing_status, override=False, segment=False):
+def load_project_settings(projects_dir, project_name):
+    """Load project settings from settings.json file"""
+    settings_file = os.path.join(projects_dir, project_name, 'settings.json')
+    settings = {}
+    
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+            print(f"Loaded settings from {settings_file}")
+        except json.JSONDecodeError as e:
+            print(f"Warning: Error parsing settings.json: {e}")
+            print("Using default settings")
+        except Exception as e:
+            print(f"Warning: Error reading settings.json: {e}")
+            print("Using default settings")
+    else:
+        print(f"No settings.json found in project directory, using default settings")
+    
+    return settings
+
+def process_file_background(project_name, filename, file_path, projects_dir, processing_status, override=False, segment=False, settings=None):
     """Background function to process a file through the pipeline"""
     process_key = f"{project_name}_{filename}"
     
@@ -34,8 +55,12 @@ def process_file_background(project_name, filename, file_path, projects_dir, pro
         processing_status[process_key]['progress'] = 10
         processing_status[process_key]['message'] = 'Cleaning audio...'
         
+        # Load project settings if not provided
+        if settings is None:
+            settings = load_project_settings(projects_dir, project_name)
+        
         # Call the custom processing function
-        success = process_file(file_path, file_path.replace('/raw', '/splits') + '/', override, segment)
+        success = process_file(file_path, file_path.replace('/raw', '/splits') + '/', override, segment, settings)
         
         if success:
             processing_status[process_key] = {
@@ -119,10 +144,13 @@ def create_split_routes(projects_dir, processing_status):
             if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
                 return jsonify({'error': 'File is already being processed'}), 409
 
+            # Load project settings
+            settings = load_project_settings(projects_dir, project_name)
+
             # Start background processing
             thread = threading.Thread(
                 target=process_file_background,
-                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status)
+                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, True, False, settings)
             )
             thread.daemon = True
             thread.start()
@@ -153,10 +181,13 @@ def create_split_routes(projects_dir, processing_status):
             if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
                 return jsonify({'error': 'File is already being processed'}), 409
 
+            # Load project settings
+            settings = load_project_settings(projects_dir, project_name)
+
             # Start background processing
             thread = threading.Thread(
                 target=process_file_background,
-                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, False, True)
+                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, False, True, settings)
             )
             thread.daemon = True
             thread.start()
@@ -198,6 +229,9 @@ def create_split_routes(projects_dir, processing_status):
                     'error': f'Some files are already being processed: {", ".join(already_processing)}'
                 }), 409
 
+            # Load project settings
+            settings = load_project_settings(projects_dir, project_name)
+
             # Start background processing for all files
             processing_keys = []
             for filename in audio_files:
@@ -207,7 +241,7 @@ def create_split_routes(projects_dir, processing_status):
                 
                 thread = threading.Thread(
                     target=process_file_background,
-                    args=(project_name, filename, raw_file_path, projects_dir, processing_status)
+                    args=(project_name, filename, raw_file_path, projects_dir, processing_status, False, False, settings)
                 )
                 thread.daemon = True
                 thread.start()
