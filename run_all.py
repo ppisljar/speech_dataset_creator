@@ -32,6 +32,7 @@ Examples:
 import os
 import sys
 import argparse
+import json
 from pathlib import Path
 from run import process_file
 from m7_validate import validate_project, copy_good_segments_to_project_audio
@@ -63,6 +64,23 @@ def main():
         print(f"Error: Project '{args.project_name}' does not exist.")
         print(f"Available projects: {', '.join(os.listdir(projects_dir)) if os.path.exists(projects_dir) else 'None'}")
         sys.exit(1)
+    
+    # Load project settings
+    settings_file = os.path.join(project_dir, 'settings.json')
+    settings = {}
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+            print(f"Loaded settings from {settings_file}")
+        except json.JSONDecodeError as e:
+            print(f"Warning: Error parsing settings.json: {e}")
+            print("Using default settings")
+        except Exception as e:
+            print(f"Warning: Error reading settings.json: {e}")
+            print("Using default settings")
+    else:
+        print(f"No settings.json found in project directory, using default settings")
     
     # Check if raw directory exists
     if not os.path.exists(raw_dir):
@@ -99,6 +117,12 @@ def main():
         print(f"  Clean failed segments: {'Yes' if args.clean else 'No'}")
     elif args.clean:
         print(f"  Clean existing bad segments: Yes")
+    
+    # Show project-specific settings
+    if settings:
+        print(f"\nProject settings:")
+        for key, value in settings.items():
+            print(f"  {key}: {value}")
     print()
     
     # Process each file
@@ -118,7 +142,7 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
             
             # Process the file
-            success = process_file(raw_file_path, output_dir, args.override, args.segment)
+            success = process_file(raw_file_path, output_dir, args.override, args.segment, settings)
             
             if success is not False:  # process_file returns None on success, False on failure
                 print(f"✓ Successfully processed: {filename}")

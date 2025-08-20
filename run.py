@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def process_file(file_path, temp_dir="./output", override=False, segment=False):
+def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None):
     """
     Process a single podcast file through the pipeline.
     
@@ -26,12 +26,22 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
         temp_dir (str): Temporary directory for processing.
         override (bool): Whether to override existing output files. Defaults to False.
         segment (bool): Whether to enable segmentation. Defaults to False.
+        settings (dict): Project settings dictionary. Defaults to None.
     
     Returns:
         None
     """
     file_name = os.path.basename(file_path)
     print(f"Processing file: {file_name}")
+    
+    # Initialize settings if not provided
+    if settings is None:
+        settings = {}
+    
+    # Show silence detection settings being used
+    silence_thresh = settings.get('silenceThreshold', -30)
+    min_silence_len = settings.get('minSilenceLength', 100)
+    print(f"Silence detection settings: threshold={silence_thresh}dB, min_length={min_silence_len}ms")
 
     # in temp folder we create a cleaned audio file and temp_folder/<file_name>/ where we store all the split audio files
     file_temp_dir = Path(temp_dir) # Path(os.path.join(temp_dir, file_name))
@@ -76,7 +86,10 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False):
             else:
                 # Find silences in the split audio file
                 print(f"Finding silences in {split_path}")
-                find_silences_in_file(split_path, silence_file)
+                # Extract silence detection settings
+                silence_thresh = settings.get('silenceThreshold', -30)
+                min_silence_len = settings.get('minSilenceLength', 100)
+                find_silences_in_file(split_path, silence_file, min_silence_len, silence_thresh)
 
             if not override and os.path.exists(transcription_file):
                 print(f"Transcription file already exists, skipping transcription.")
