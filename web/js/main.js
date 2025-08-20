@@ -32,8 +32,17 @@ class PodcastManager {
         if (dataFileSelect && !dataFileSelect.hasAttribute('data-listener-attached')) {
             dataFileSelect.addEventListener('change', async (e) => {
                 await this.onDataFileChange(e.target.value);
+                updateCleanButtonState();
             });
             dataFileSelect.setAttribute('data-listener-attached', 'true');
+        }
+        
+        const dataSplitSelect = document.getElementById('dataSplitSelect');
+        if (dataSplitSelect && !dataSplitSelect.hasAttribute('data-listener-attached')) {
+            dataSplitSelect.addEventListener('change', () => {
+                updateCleanButtonState();
+            });
+            dataSplitSelect.setAttribute('data-listener-attached', 'true');
         }
     }
 
@@ -120,6 +129,8 @@ class PodcastManager {
             dataSplitSelect.innerHTML = '<option value="">Select Split</option>';
         }
         
+        updateCleanButtonState(); // Update after clearing splits
+        
         if (!this.currentProject || !filename) return;
 
         try {
@@ -139,6 +150,8 @@ class PodcastManager {
         } catch (error) {
             this.showMessage('Error loading splits: ' + error.message, true);
         }
+        
+        updateCleanButtonState(); // Update after loading splits
     }
 
     updateProjectButtons() {
@@ -668,4 +681,127 @@ async function monitorProcessing(project, filename) {
 
 function loadProcessingStatus() {
     podcastManager.loadProcessingStatus();
+}
+
+// Clean functions
+async function toggleCleanDropdown() {
+    const dropdown = document.getElementById('cleanDropdownContent');
+    const isVisible = dropdown.classList.contains('show');
+    
+    if (isVisible) {
+        dropdown.classList.remove('show');
+    } else {
+        await loadCleanableFiles();
+        dropdown.classList.add('show');
+    }
+}
+
+async function loadCleanableFiles() {
+    const project = podcastManager.currentProject;
+    const filename = document.getElementById('dataFileSelect').value;
+    const splitName = document.getElementById('dataSplitSelect').value;
+    
+    const filesList = document.getElementById('cleanFilesList');
+    
+    if (!project || !filename || !splitName) {
+        filesList.innerHTML = '<div class="clean-placeholder">Select a file and split to see cleanable files</div>';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/projects/${project}/splits/${encodeURIComponent(filename)}/${encodeURIComponent(splitName)}/cleanable`);
+        
+        if (response.ok) {
+            const cleanableFiles = await response.json();
+            
+            if (cleanableFiles.length === 0) {
+                filesList.innerHTML = '<div class="clean-placeholder">No processing files found to clean</div>';
+                return;
+            }
+            
+            let html = '';
+            cleanableFiles.forEach(file => {
+                const fileType = getFileType(file.name);
+                html += `
+                    <div class="clean-file-item">
+                        <span class="clean-file-name">${file.name}</span>
+                        <span class="clean-file-type">${fileType}</span>
+                        <button class="clean-delete-btn" onclick="deleteCleanFile('${file.name}')">Delete</button>
+                    </div>
+                `;
+            });
+            
+            filesList.innerHTML = html;
+        } else {
+            filesList.innerHTML = '<div class="clean-placeholder">Error loading cleanable files</div>';
+        }
+    } catch (error) {
+        console.error('Error loading cleanable files:', error);
+        filesList.innerHTML = '<div class="clean-placeholder">Error loading cleanable files</div>';
+    }
+}
+
+function getFileType(filename) {
+    if (filename.includes('silences')) return 'Silences';
+    if (filename.includes('transcription')) return 'Transcription';
+    if (filename.includes('pyannote')) return 'Pyannote';
+    if (filename.includes('3dspeaker')) return '3DSpeaker';
+    if (filename.includes('wespeaker')) return 'WeSpeaker';
+    if (filename.includes('segments')) return 'Segments';
+    if (filename.includes('speaker_db')) return 'Speaker DB';
+    return 'Other';
+}
+
+async function deleteCleanFile(filename) {
+    const project = podcastManager.currentProject;
+    const file = document.getElementById('dataFileSelect').value;
+    const splitName = document.getElementById('dataSplitSelect').value;
+    
+    if (!confirm(`Are you sure you want to delete ${filename}?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/projects/${project}/splits/${encodeURIComponent(file)}/${encodeURIComponent(splitName)}/clean`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ filename: filename })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            podcastManager.showMessage(`Successfully deleted ${filename}`);
+            // Refresh the cleanable files list
+            await loadCleanableFiles();
+        } else {
+            podcastManager.showMessage(result.error || 'Error deleting file', true);
+        }
+    } catch (error) {
+        console.error('Error deleting file:', error);
+        podcastManager.showMessage('Error deleting file: ' + error.message, true);
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(event) {
+    const dropdown = document.getElementById('cleanDropdownContent');
+    const cleanBtn = document.getElementById('cleanBtn');
+    
+    if (dropdown && !cleanBtn.contains(event.target) && !dropdown.contains(event.target)) {
+        dropdown.classList.remove('show');
+    }
+});
+
+// Enable/disable clean button based on selections
+function updateCleanButtonState() {
+    const filename = document.getElementById('dataFileSelect').value;
+    const splitName = document.getElementById('dataSplitSelect').value;
+    const cleanBtn = document.getElementById('cleanBtn');
+    
+    if (cleanBtn) {
+        cleanBtn.disabled = !filename || !splitName;
+    }
 }

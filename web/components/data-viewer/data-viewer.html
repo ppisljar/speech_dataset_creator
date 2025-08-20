@@ -8,6 +8,14 @@
     </select>
     <button onclick="loadData()">Load Data</button>
     <button onclick="refreshFile()">Refresh File</button>
+    <div class="clean-dropdown">
+        <button onclick="toggleCleanDropdown()" id="cleanBtn" disabled>Clean ▼</button>
+        <div id="cleanDropdownContent" class="clean-dropdown-content">
+            <div id="cleanFilesList">
+                <div class="clean-placeholder">Select a file and split to see cleanable files</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="zoom-controls">

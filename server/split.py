@@ -150,7 +150,7 @@ def create_split_routes(projects_dir, processing_status):
             # Start background processing
             thread = threading.Thread(
                 target=process_file_background,
-                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, True, False, settings)
+                args=(project_name, decoded_filename, raw_file_path, projects_dir, processing_status, False, False, settings)
             )
             thread.daemon = True
             thread.start()
@@ -303,6 +303,98 @@ def create_split_routes(projects_dir, processing_status):
                 except Exception as e:
                     return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
                     
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/splits/<path:splitnam>/<split_file>/cleanable', methods=['GET'])
+    def get_cleanable_files(project_name, splitnam, split_file):
+        """Get list of processing files that can be cleaned for a specific split"""
+        try:
+            # URL decode the splitnam to handle encoded characters like %2F
+            decoded_splitnam = urllib.parse.unquote(splitnam)
+            decoded_split_file = urllib.parse.unquote(split_file)
+            
+            split_dir = os.path.join(projects_dir, project_name, 'splits', decoded_splitnam)
+            
+            if not os.path.exists(split_dir):
+                return jsonify([]), 200
+            
+            # Define processing file patterns based on the split file name
+            base_name = decoded_split_file  # Keep the full filename including .wav
+            
+            # List of potential processing files
+            processing_patterns = [
+                f"{base_name}_silences.json",
+                f"{base_name}_transcription.json", 
+                f"{base_name}_pyannote.csv",
+                f"{base_name}_pyannote.rttm",
+                f"{base_name}_3dspeaker.csv",
+                f"{base_name}_3dspeaker.rttm", 
+                f"{base_name}_wespeaker.csv",
+                f"{base_name}_wespeaker.rttm",
+                f"{base_name}_segments.json",
+                f"{base_name}_speaker_db.npy"
+            ]
+            
+            cleanable_files = []
+            for pattern in processing_patterns:
+                file_path = os.path.join(split_dir, pattern)
+                if os.path.exists(file_path):
+                    file_stats = os.stat(file_path)
+                    cleanable_files.append({
+                        'name': pattern,
+                        'size': file_stats.st_size,
+                        'modified': file_stats.st_mtime
+                    })
+            
+            return jsonify(cleanable_files), 200
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/splits/<path:splitnam>/<split_file>/clean', methods=['DELETE'])
+    def clean_processing_file(project_name, splitnam, split_file):
+        """Delete a specific processing file"""
+        try:
+            # URL decode the splitnam to handle encoded characters like %2F
+            decoded_splitnam = urllib.parse.unquote(splitnam)
+            decoded_split_file = urllib.parse.unquote(split_file)
+            
+            data = request.get_json()
+            if not data or 'filename' not in data:
+                return jsonify({'error': 'Filename is required'}), 400
+            
+            filename_to_delete = data['filename']
+            
+            # Security check: ensure the filename is a valid processing file
+            base_name = decoded_split_file  # Keep the full filename including .wav
+            valid_patterns = [
+                f"{base_name}_silences.json",
+                f"{base_name}_transcription.json", 
+                f"{base_name}_pyannote.csv",
+                f"{base_name}_pyannote.rttm",
+                f"{base_name}_3dspeaker.csv",
+                f"{base_name}_3dspeaker.rttm", 
+                f"{base_name}_wespeaker.csv",
+                f"{base_name}_wespeaker.rttm",
+                f"{base_name}_segments.json",
+                f"{base_name}_speaker_db.npy"
+            ]
+            
+            if filename_to_delete not in valid_patterns:
+                return jsonify({'error': 'Invalid file for deletion'}), 400
+            
+            split_dir = os.path.join(projects_dir, project_name, 'splits', decoded_splitnam)
+            file_path = os.path.join(split_dir, filename_to_delete)
+            
+            if not os.path.exists(file_path):
+                return jsonify({'error': 'File not found'}), 404
+            
+            # Delete the file
+            os.remove(file_path)
+            
+            return jsonify({'message': f'Successfully deleted {filename_to_delete}'}), 200
+            
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
