@@ -227,7 +227,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     podcast_name = args.podcast_name
-    output_dir = f'./projects/{podcast_name}'
+    output_dir = f'./projects/{podcast_name}/raw'
 
     print(f"Downloading podcasts from '{podcast_name}' to '{output_dir}' directory...")
 
