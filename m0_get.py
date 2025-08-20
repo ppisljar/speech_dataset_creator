@@ -66,25 +66,82 @@ def get_filename_from_url(url):
     for char in problematic_chars:
         filename = filename.replace(char, '_')
     
+    # Keep the original extension for downloading, but we'll convert to WAV later
     return filename
+
+# Function to convert M4A to WAV using ffmpeg
+def convert_m4a_to_wav(input_file, output_file):
+    try:
+        command = ['ffmpeg', '-i', input_file, '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output_file, '-y']
+        subprocess.run(command, check=True, capture_output=True)
+        print(f"Converted {input_file} to {output_file}")
+        # Remove the original M4A file after successful conversion
+        os.remove(input_file)
+        print(f"Removed original file: {input_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting {input_file} to WAV: {e}")
+    except OSError as e:
+        print(f"Error removing {input_file}: {e}")
 
 # Function to download the MP3 file using wget
 def download_mp3(url, file_name, override=False):
     try:
-        # Check if the file already exists unless override is True
-        if not override and os.path.exists(file_name):
-            print(f"Skipping {file_name}, already downloaded.")
+        # Determine the final WAV filename
+        if file_name.lower().endswith('.wav'):
+            final_wav_file = file_name
+        else:
+            # Change extension to .wav for final output
+            final_wav_file = file_name.rsplit('.', 1)[0] + '.wav'
+        
+        # Check if the final WAV file already exists unless override is True
+        if not override and os.path.exists(final_wav_file):
+            print(f"Skipping {final_wav_file}, already downloaded.")
             return
 
+        # Determine original filename based on URL to preserve extension for download
+        original_filename = get_filename_from_url(url)
+        if not original_filename:
+            # Fallback if we can't determine extension from URL
+            original_filename = file_name
+        
+        # Download with original extension
+        temp_file = os.path.join(os.path.dirname(file_name), original_filename)
+        
         # Use subprocess to call wget
-        command = ['wget', url, '-O', file_name]
+        command = ['wget', url, '-O', temp_file]
         subprocess.run(command, check=True)
-        print(f"Downloaded: {file_name}")
+        print(f"Downloaded: {temp_file}")
+        
+        # Convert to WAV if needed
+        if temp_file.lower().endswith('.m4a'):
+            convert_m4a_to_wav(temp_file, final_wav_file)
+        elif temp_file.lower().endswith('.mp3'):
+            convert_mp3_to_wav(temp_file, final_wav_file)
+        else:
+            # If it's already WAV or unknown format, just rename
+            if temp_file != final_wav_file:
+                os.rename(temp_file, final_wav_file)
+                print(f"Renamed {temp_file} to {final_wav_file}")
+            
     except subprocess.CalledProcessError as e:
         print(f"Error downloading {url}: {e}")
 
+# Function to convert MP3 to WAV using ffmpeg  
+def convert_mp3_to_wav(input_file, output_file):
+    try:
+        command = ['ffmpeg', '-i', input_file, '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', output_file, '-y']
+        subprocess.run(command, check=True, capture_output=True)
+        print(f"Converted {input_file} to {output_file}")
+        # Remove the original MP3 file after successful conversion
+        os.remove(input_file)
+        print(f"Removed original file: {input_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting {input_file} to WAV: {e}")
+    except OSError as e:
+        print(f"Error removing {input_file}: {e}")
+
 def generate_sequential_name(index):
-    return f"pod_{index:05d}.mp3"
+    return f"pod_{index:05d}.wav"
 
 # Main function to scrape and download MP3s from all pages
 async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_names=False, override=False):
@@ -121,13 +178,17 @@ async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_
         # Download each MP3 file found on the first page
         for mp3_url in mp3_urls:
             if use_custom_names:
-                mp3_name = generate_sequential_name(file_index)
+                file_name = generate_sequential_name(file_index)
                 file_index += 1
             else:
-                # Get sanitized filename (without query parameters)
-                mp3_name = get_filename_from_url(mp3_url)
-            mp3_path = os.path.join(output_dir, mp3_name)
-            download_mp3(mp3_url, mp3_path, override=override)
+                # Get sanitized filename and ensure WAV extension for output
+                original_name = get_filename_from_url(mp3_url)
+                if original_name.lower().endswith(('.mp3', '.m4a')):
+                    file_name = original_name.rsplit('.', 1)[0] + '.wav'
+                else:
+                    file_name = original_name + '.wav'
+            file_path = os.path.join(output_dir, file_name)
+            download_mp3(mp3_url, file_path, override=override)
 
         # Loop through remaining pages (2 to total_pages)
         for page_num in range(2, pages_to_process + 1):
@@ -145,13 +206,17 @@ async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_
             # Download each MP3 file found on the page
             for mp3_url in mp3_urls:
                 if use_custom_names:
-                    mp3_name = generate_sequential_name(file_index)
+                    file_name = generate_sequential_name(file_index)
                     file_index += 1
                 else:
-                    # Get sanitized filename (without query parameters)
-                    mp3_name = get_filename_from_url(mp3_url)
-                mp3_path = os.path.join(output_dir, mp3_name)
-                download_mp3(mp3_url, mp3_path, override=override)
+                    # Get sanitized filename and ensure WAV extension for output
+                    original_name = get_filename_from_url(mp3_url)
+                    if original_name.lower().endswith(('.mp3', '.m4a')):
+                        file_name = original_name.rsplit('.', 1)[0] + '.wav'
+                    else:
+                        file_name = original_name + '.wav'
+                file_path = os.path.join(output_dir, file_name)
+                download_mp3(mp3_url, file_path, override=override)
 
 # Run the main function
 if __name__ == '__main__':

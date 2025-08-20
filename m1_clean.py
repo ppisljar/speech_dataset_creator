@@ -1,8 +1,14 @@
 import os
 import soundfile as sf
+import torch
 from clearvoice import ClearVoice
 # use clearvoice mossformer2 to clean up audio (remove background noise, echo, reverb, etc.)
 
+# Check GPU availability for ClearVoice (it will automatically use GPU if available)
+if torch.cuda.is_available():
+    print(f"GPU available: {torch.cuda.get_device_name()} - ClearVoice will use it automatically")
+else:
+    print("WARNING: No GPU detected - ClearVoice will run on CPU (slower processing)")
 
 myClearVoice = ClearVoice(task='speech_enhancement', model_names=['MossFormer2_SE_48K'])
 

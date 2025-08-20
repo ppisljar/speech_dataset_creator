@@ -11,3 +11,5 @@ projects
 __pycache__
 .DS_Store
 .vscode/tasks.json
+podcasts.csv
+m00_podcasti_si.py
