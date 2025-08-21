@@ -5,6 +5,7 @@ import subprocess
 import pandas as pd
 import numpy as np
 import uuid
+import traceback
 from pyannote.audio import Pipeline, Model
 from pyannote.core import Segment
 import argparse
@@ -104,16 +105,12 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         end_sample = int(turn.end * sample_rate)
         segment_waveform = waveform[:, start_sample:end_sample]
         
-        # Create proper input for embedding model
-        segment_input = {
-            'waveform': segment_waveform,
-            'sample_rate': sample_rate
-        }
-        
         # Extract embedding for this segment
+        # Note: embedder expects just the waveform tensor, not a dict
         with torch.no_grad():
             try:
-                embedding = embedder(segment_input)
+                embedding = embedder(segment_waveform)
+                print (f"Extracted embedding for segment {turn.start}-{turn.end} with shape {embedding}")
                 
                 # Handle different types of embedding output
                 if isinstance(embedding, dict):
@@ -125,6 +122,9 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                     else:
                         # Take the first tensor value from the dict
                         embedding = next(iter(embedding.values()))
+                        # Handle nested dicts
+                        while isinstance(embedding, dict):
+                            embedding = next(iter(embedding.values()))
                 
                 if isinstance(embedding, torch.Tensor):
                     embedding = embedding.numpy()
@@ -134,12 +134,14 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                     # If it's already a numpy array or list
                     embedding = np.array(embedding)
                 
-                # Ensure it's 1D
-                if hasattr(embedding, 'ndim') and embedding.ndim > 1:
+                # Ensure it's 1D - only check ndim if it's not a dict
+                if not isinstance(embedding, dict) and hasattr(embedding, 'ndim') and embedding.ndim > 1:
                     embedding = embedding.flatten()
                     
             except Exception as e:
                 print(f"Warning: Could not extract embedding for segment {turn.start}-{turn.end}: {e}")
+                print("Full stack trace:")
+                traceback.print_exc()
                 # Fall back to using the original speaker label
                 speaker_name = speaker
                 rows.append({

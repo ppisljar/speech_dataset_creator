@@ -1,7 +1,7 @@
 from m0_get import get_podcasts
 from m1_clean import clean_audio
 from m2_silences import find_silences_in_file
-from m3_split import split_audio
+from m3_split import split_audio, NoAdequateSilenceError
 from m4_transcribe_file import transcribe_file
 from m5_pyannote import pyannote
 from m6_segment import segment_audio, generate_segments
@@ -66,10 +66,21 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
         print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
     else:
         print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
-        split_audio(clean_file, file_temp_dir)
+        try:
+            split_audio(clean_file, file_temp_dir)
+        except NoAdequateSilenceError as e:
+            print(f"Error: {e}")
+            print(f"Skipping file {file_name} due to splitting failure.")
+            return False
 
     # for each split audio file, perform transcription and diarization
     split_count = sum(1 for f in os.listdir(file_temp_dir) if f.endswith(".wav"))
+    
+    # If no wav files were created (splitting failed), return False
+    if split_count == 0:
+        print(f"No audio files found after splitting. Skipping further processing for {file_name}.")
+        return False
+    
     for split_file in os.listdir(file_temp_dir):
         # if we have more than single split (more than 1 .wav file in the folder):
         if split_file.endswith(f"_cleaned_audio.wav") and split_count > 1:

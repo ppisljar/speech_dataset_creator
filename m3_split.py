@@ -8,15 +8,15 @@ from typing import List, Tuple
 # ----------------------------
 # Parameters you might tweak
 # ----------------------------
-MAX_SEG_SEC = 60 * 60           # 60 minutes
-MIN_SEG_SEC = 55 * 60           # 55 minutes
+MAX_SEG_SEC = 59 * 60           # 60 minutes
+MIN_SEG_SEC = 50 * 60           # 55 minutes
 SILENCE_DB = -35                # threshold in dB for silencedetect (e.g., -30 to -40 is common)
-SILENCE_MIN_LEN = 1           # seconds of continuous silence to count as "long"
+SILENCE_MIN_LEN = 0.5           # seconds of continuous silence to count as "long"
 REENCODE = True                 # True = re-encode; False = stream copy (-c copy)
 LAME_QUALITY = "2"              # -q:a 2 is good VBR quality if re-encoding
 
 # New policy parameters
-MIN_CUT_SILENCE_SEC = 0.100     # require at least 100 ms silence to cut on
+MIN_CUT_SILENCE_SEC = 0.050     # require at least 50 ms silence to cut on
 EXPANSION_SEC = 5 * 60          # expand the target window by +5 minutes if needed
 
 RE_SILENCE_START = re.compile(r"silence_start:\s*([0-9.]+)")
@@ -52,6 +52,10 @@ def find_silences(infile: Path, silence_db: int, min_len: float) -> List[Tuple[f
             current_start = None
     return silences
 
+class NoAdequateSilenceError(Exception):
+    """Raised when no adequate silence is found for splitting."""
+    pass
+
 def choose_cut_points(duration: float, silences: List[Tuple[float, float, float]]) -> List[Tuple[float, float]]:
     cuts = []
     start = 0.0
@@ -73,7 +77,7 @@ def choose_cut_points(duration: float, silences: List[Tuple[float, float, float]
             exp_hi = min(window_max + EXPANSION_SEC, duration)
             chosen = best_silence(window_min, exp_hi)
             if chosen is None:
-                raise SystemExit(
+                raise NoAdequateSilenceError(
                     f"No adequate silence found for segment {seg_idx} "
                     f"in window [{sec_to_hms(window_min)} – {sec_to_hms(exp_hi)}]."
                 )
@@ -120,6 +124,7 @@ def split_audio(input_path: Path, output_dir: Path, silence_db: int = SILENCE_DB
     :param silence_min: Minimum silence length in seconds.
     :param min_minutes: Minimum segment length in minutes.
     :param max_minutes: Maximum segment length in minutes.
+    :raises NoAdequateSilenceError: When no adequate silences are found for splitting.
     """
     global MIN_SEG_SEC, MAX_SEG_SEC
     MIN_SEG_SEC = min_minutes * 60
@@ -138,13 +143,18 @@ def split_audio(input_path: Path, output_dir: Path, silence_db: int = SILENCE_DB
 
     # Choose cut points
     print(f"[info] Choosing cut points...")
-    segments = choose_cut_points(duration, silences)
-    print(f"[info] Splitting into {len(segments)} file(s) → {output_dir}/")
+    try:
+        segments = choose_cut_points(duration, silences)
+        print(f"[info] Splitting into {len(segments)} file(s) → {output_dir}/")
 
-    # Split audio
-    ext = input_path.suffix.lower().lstrip('.')
-    split_with_ffmpeg(input_path, segments, output_dir, ext)
-    print("[done] Splitting complete.")
+        # Split audio
+        ext = input_path.suffix.lower().lstrip('.')
+        split_with_ffmpeg(input_path, segments, output_dir, ext)
+        print("[done] Splitting complete.")
+    except NoAdequateSilenceError as e:
+        print(f"[warning] {e}")
+        print(f"[warning] Skipping file {input_path.name} - no adequate silences found for splitting")
+        raise
 
 
 def main():
@@ -160,7 +170,10 @@ def main():
     if not infile.exists():
         raise SystemExit(f"Input file not found: {infile}")
     
-    split_audio(infile, args.outdir, args.silence_db, args.silence_min, args.min_minutes, args.max_minutes)
+    try:
+        split_audio(infile, args.outdir, args.silence_db, args.silence_min, args.min_minutes, args.max_minutes)
+    except NoAdequateSilenceError as e:
+        raise SystemExit(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
