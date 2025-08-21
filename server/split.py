@@ -409,6 +409,7 @@ def create_split_routes(projects_dir, processing_status):
                 f"{base_name}_wespeaker.csv",
                 f"{base_name}_wespeaker.rttm",
                 f"{base_name}_segments.json",
+                f"{base_name}_segments_raw.json",
                 f"{base_name}_speaker_db.npy"
             ]
             

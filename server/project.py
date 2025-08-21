@@ -282,6 +282,7 @@ def create_project_routes(projects_dir, processing_status):
             clean_transcriptions = data.get('transcriptions', False)
             clean_speakers = data.get('speakers', False)
             clean_segments = data.get('segments', False)
+            clean_raw_segments = data.get('raw_segments', False)
             clean_silences = data.get('silences', False)
             clean_other = data.get('other', False)
             
@@ -331,7 +332,9 @@ def create_project_routes(projects_dir, processing_status):
                 if clean_speakers:
                     file_patterns.extend(['*_pyannote.csv', '*_pyannote.rttm', '*_3dspeaker.csv', '*_3dspeaker.rttm', '*_wespeaker.csv', '*_wespeaker.rttm', '*_speaker_db.npy'])
                 if clean_segments:
-                    file_patterns.extend(['*_segments.json', '*_segments_raw.json'])
+                    file_patterns.extend(['*_segments.json'])
+                if clean_raw_segments:
+                    file_patterns.extend(['*_segments_raw.json'])
                 if clean_silences:
                     file_patterns.extend(['*_silences.json'])
                 if clean_other:

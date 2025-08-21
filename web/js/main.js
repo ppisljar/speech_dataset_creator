@@ -1135,6 +1135,7 @@ function getFileType(filename) {
     if (filename.includes('pyannote')) return 'Pyannote';
     if (filename.includes('3dspeaker')) return '3DSpeaker';
     if (filename.includes('wespeaker')) return 'WeSpeaker';
+    if (filename.includes('segments_raw')) return 'Raw Segments';
     if (filename.includes('segments')) return 'Segments';
     if (filename.includes('speaker_db')) return 'Speaker DB';
     return 'Other';
