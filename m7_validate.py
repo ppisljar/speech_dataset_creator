@@ -215,7 +215,7 @@ def _calculate_similarity_score(original, new):
     return int(similarity_ratio * 90)
 
 
-def validate_project(project_name, delete_bad=False, score_threshold=85, force_revalidate=False):
+def validate_project(project_name, delete_bad=False, score_threshold=85, force_revalidate=False, progress_manager=None):
     """
     Validate all segments in a project by looking at the generated segments folder.
     
@@ -224,10 +224,18 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         delete_bad (bool): Whether to delete bad segment files.
         score_threshold (int): Minimum score threshold.
         force_revalidate (bool): Whether to ignore existing bad_segments.json files and revalidate.
+        progress_manager: ProgressManager instance for tracking progress. Defaults to None.
         
     Returns:
         dict: Dictionary with speaker folders as keys and bad segments as values.
     """
+    def log_print(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
+    
     # First try the new m6 folder structure: projects/<project_name>/splits/*/segments/speakers/
     project_splits_dir = os.path.join('projects', project_name, 'splits')
     
@@ -235,7 +243,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     speaker_folders = []
     
     if os.path.exists(project_splits_dir):
-        print(f"Looking for segments in m6 structure: {project_splits_dir}")
+        log_print(f"Looking for segments in m6 structure: {project_splits_dir}")
         
         # Walk through splits directory to find all speakers folders
         for root, dirs, files in os.walk(project_splits_dir):
@@ -252,7 +260,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         project_segments_dir = os.path.join('projects', project_name, 'audio')
         
         if os.path.exists(project_segments_dir):
-            print(f"Looking for segments in legacy structure: {project_segments_dir}")
+            log_print(f"Looking for segments in legacy structure: {project_segments_dir}")
             
             # Find all speaker folders directly under audio
             for item in os.listdir(project_segments_dir):
@@ -261,15 +269,15 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
                     speaker_folders.append(item_path)
     
     if not speaker_folders:
-        print(f"No speaker folders found in project: {project_name}")
-        print(f"Checked paths:")
-        print(f"  - {project_splits_dir} (m6 structure)")
-        print(f"  - {os.path.join('projects', project_name, 'audio')} (legacy structure)")
+        log_print(f"No speaker folders found in project: {project_name}")
+        log_print(f"Checked paths:")
+        log_print(f"  - {project_splits_dir} (m6 structure)")
+        log_print(f"  - {os.path.join('projects', project_name, 'audio')} (legacy structure)")
         return {}
     
-    print(f"Found {len(speaker_folders)} speaker folders in project '{project_name}':")
+    log_print(f"Found {len(speaker_folders)} speaker folders in project '{project_name}':")
     for speaker_folder in speaker_folders:
-        print(f"  {speaker_folder}")
+        log_print(f"  {speaker_folder}")
     
     # Project-level bad segments file
     project_bad_segments_file = os.path.join('projects', project_name, 'bad_segments.json')
@@ -277,7 +285,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     
     # Check if we should use existing project bad_segments.json file
     if not force_revalidate and os.path.exists(project_bad_segments_file):
-        print(f"\n--- Using existing project bad segments file: {project_bad_segments_file} ---")
+        log_print(f"\n--- Using existing project bad segments file: {project_bad_segments_file} ---")
         try:
             with open(project_bad_segments_file, 'r', encoding='utf-8') as f:
                 existing_data = json.load(f)
@@ -286,38 +294,55 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
             if isinstance(existing_data, dict) and 'speakers' in existing_data:
                 for speaker_path, bad_segments in existing_data['speakers'].items():
                     all_results[speaker_path] = bad_segments
-                print(f"Loaded {sum(len(segs) for segs in all_results.values())} bad segments from existing project file")
+                log_print(f"Loaded {sum(len(segs) for segs in all_results.values())} bad segments from existing project file")
                 
                 # If delete_bad is True, clean the segments
                 if delete_bad:
-                    for speaker_folder in speaker_folders:
+                    if progress_manager:
+                        progress_manager.init_step_progress(len(speaker_folders), "Cleaning Bad Segments")
+                    
+                    for i, speaker_folder in enumerate(speaker_folders):
+                        if progress_manager:
+                            progress_manager.update_step(0, f"Cleaning speaker {i+1}/{len(speaker_folders)}")
+                        
                         speaker_bad_segments = all_results.get(speaker_folder, [])
                         if speaker_bad_segments:
-                            clean_bad_segments_from_speaker(speaker_folder, speaker_bad_segments)
+                            clean_bad_segments_from_speaker(speaker_folder, speaker_bad_segments, progress_manager)
+                        
+                        if progress_manager:
+                            progress_manager.update_step(1)
                 
                 return all_results
                 
         except Exception as e:
-            print(f"Error reading existing project bad_segments.json: {e}")
-            print("Proceeding with revalidation...")
+            log_print(f"Error reading existing project bad_segments.json: {e}")
+            log_print("Proceeding with revalidation...")
     
     # Delete existing project bad_segments.json if force_revalidate is True
     if force_revalidate and os.path.exists(project_bad_segments_file):
         try:
             os.remove(project_bad_segments_file)
-            print(f"Deleted existing project bad_segments.json")
+            log_print(f"Deleted existing project bad_segments.json")
         except Exception as e:
-            print(f"Warning: Could not delete existing project bad_segments.json: {e}")
+            log_print(f"Warning: Could not delete existing project bad_segments.json: {e}")
+    
+    # Initialize step progress for validation
+    if progress_manager:
+        progress_manager.init_step_progress(len(speaker_folders), "Validating Speakers")
     
     # Validate each speaker folder
-    for speaker_folder in speaker_folders:
+    for i, speaker_folder in enumerate(speaker_folders):
         speaker_name = os.path.basename(speaker_folder)
-        print(f"\n--- Validating speaker: {speaker_name} ---")
+        if progress_manager:
+            progress_manager.update_step(0, f"Validating speaker {i+1}/{len(speaker_folders)}: {speaker_name}")
+        
+        log_print(f"\n--- Validating speaker: {speaker_name} ---")
         
         # Run validation without cleaning (cleaning happens separately)
         bad_segments = validate_speaker_segments(speaker_folder, 
                                                delete_bad=False,
-                                               score_threshold=score_threshold)
+                                               score_threshold=score_threshold,
+                                               progress_manager=progress_manager)
         
         # Add speaker path to each bad segment for identification
         for bad_segment in bad_segments:
@@ -328,7 +353,10 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         
         # If delete_bad is True, clean the bad segments after validation
         if delete_bad and bad_segments:
-            clean_bad_segments_from_speaker(speaker_folder, bad_segments)
+            clean_bad_segments_from_speaker(speaker_folder, bad_segments, progress_manager)
+        
+        if progress_manager:
+            progress_manager.update_step(1)
     
     # Save all bad segments to a single project-level JSON file
     project_data = {
@@ -343,40 +371,48 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         os.makedirs(os.path.dirname(project_bad_segments_file), exist_ok=True)
         with open(project_bad_segments_file, 'w', encoding='utf-8') as f:
             json.dump(project_data, f, indent=2, ensure_ascii=False)
-        print(f"\nProject bad segments saved to: {project_bad_segments_file}")
+        log_print(f"\nProject bad segments saved to: {project_bad_segments_file}")
     except Exception as e:
-        print(f"Error saving project bad segments to {project_bad_segments_file}: {e}")
+        log_print(f"Error saving project bad segments to {project_bad_segments_file}: {e}")
     
     # Print summary
     total_bad = sum(len(bad_segments) for bad_segments in all_results.values())
     total_segments = sum(len([f for f in os.listdir(folder) if f.endswith('.wav')]) for folder in speaker_folders if os.path.exists(folder))
-    print(f"\n=== Project Validation Summary ===")
-    print(f"Project: {project_name}")
-    print(f"Speaker folders processed: {len(speaker_folders)}")
-    print(f"Total segments processed: {total_segments}")
-    print(f"Total bad segments found: {total_bad}")
+    log_print(f"\n=== Project Validation Summary ===")
+    log_print(f"Project: {project_name}")
+    log_print(f"Speaker folders processed: {len(speaker_folders)}")
+    log_print(f"Total segments processed: {total_segments}")
+    log_print(f"Total bad segments found: {total_bad}")
     
     return all_results
 
 
-def clean_bad_segments_from_speaker(speaker_folder, bad_segments):
+def clean_bad_segments_from_speaker(speaker_folder, bad_segments, progress_manager=None):
     """
     Clean bad segments from a speaker folder based on a list of bad segments.
     
     Args:
         speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
         bad_segments (list): List of bad segment dictionaries.
+        progress_manager: ProgressManager instance for tracking progress. Defaults to None.
         
     Returns:
         int: Number of segments cleaned.
     """
+    def log_print(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
+    
     if not bad_segments:
-        print(f"No bad segments to clean for speaker: {os.path.basename(speaker_folder)}")
+        log_print(f"No bad segments to clean for speaker: {os.path.basename(speaker_folder)}")
         return 0
     
     cleaned_count = 0
     speaker_name = os.path.basename(speaker_folder)
-    print(f"Cleaning {len(bad_segments)} bad segments for speaker: {speaker_name}")
+    log_print(f"Cleaning {len(bad_segments)} bad segments for speaker: {speaker_name}")
     
     for bad_segment in bad_segments:
         filename = bad_segment.get('filename', '')
@@ -391,22 +427,22 @@ def clean_bad_segments_from_speaker(speaker_folder, bad_segments):
             try:
                 os.remove(wav_file)
                 files_deleted += 1
-                print(f"  Deleted: {wav_file}")
+                log_print(f"  Deleted: {wav_file}")
             except Exception as e:
-                print(f"  Error deleting {wav_file}: {e}")
+                log_print(f"  Error deleting {wav_file}: {e}")
         
         if os.path.exists(txt_file):
             try:
                 os.remove(txt_file)
                 files_deleted += 1
-                print(f"  Deleted: {txt_file}")
+                log_print(f"  Deleted: {txt_file}")
             except Exception as e:
-                print(f"  Error deleting {txt_file}: {e}")
+                log_print(f"  Error deleting {txt_file}: {e}")
         
         if files_deleted > 0:
             cleaned_count += 1
     
-    print(f"Cleaned {cleaned_count} segments for speaker: {speaker_name}")
+    log_print(f"Cleaned {cleaned_count} segments for speaker: {speaker_name}")
     return cleaned_count
 
 
@@ -447,7 +483,7 @@ def clean_bad_segments_from_project(project_name):
     return total_cleaned
 
 
-def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85):
+def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85, progress_manager=None):
     """
     Validate all segments in a speaker folder.
     
@@ -455,31 +491,49 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
         speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
         delete_bad (bool): Whether to delete bad segment files (deprecated - use clean_bad_segments_from_speaker).
         score_threshold (int): Minimum score threshold.
+        progress_manager: ProgressManager instance for tracking progress. Defaults to None.
         
     Returns:
         list: List of bad segments with their scores.
     """
+    def log_print(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
+    
     if not os.path.exists(speaker_folder):
-        print(f"Speaker folder not found: {speaker_folder}")
+        log_print(f"Speaker folder not found: {speaker_folder}")
         return []
 
     # Find all .wav files in the speaker folder
     wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
     
     if not wav_files:
-        print(f"No .wav files found in speaker folder: {speaker_folder}")
+        log_print(f"No .wav files found in speaker folder: {speaker_folder}")
         return []
 
     bad_segments = []
     
+    # Initialize progress for individual segments within this speaker if we have a progress manager
+    # and there are enough segments to warrant sub-progress tracking
+    if progress_manager and len(wav_files) > 10:
+        progress_manager.init_step_progress(len(wav_files), f"Validating {len(wav_files)} segments")
+    
     for i, wav_filename in enumerate(wav_files):
+        if progress_manager and len(wav_files) > 10:
+            progress_manager.update_step(0, f"Validating segment {i+1}/{len(wav_files)}: {wav_filename}")
+        
         try:
             # Get file paths
             wav_file = os.path.join(speaker_folder, wav_filename)
             txt_file = os.path.splitext(wav_file)[0] + '.txt'
             
             if not os.path.exists(txt_file):
-                print(f"Text file not found for {wav_filename}: {txt_file}")
+                log_print(f"Text file not found for {wav_filename}: {txt_file}")
+                if progress_manager and len(wav_files) > 10:
+                    progress_manager.update_step(1)
                 continue
 
             # Read the existing transcription
@@ -495,7 +549,9 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 if isinstance(new_transcription, dict) and 'text' in new_transcription:
                     new_transcription = new_transcription['text']
             except Exception as e:
-                print(f"Error transcribing {trimmed_audio_file}: {e}")
+                log_print(f"Error transcribing {trimmed_audio_file}: {e}")
+                if progress_manager and len(wav_files) > 10:
+                    progress_manager.update_step(1)
                 continue
             
             # Calculate similarity score
@@ -512,20 +568,25 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 }
                 bad_segments.append(bad_segment)
                 
-                print(f"Bad segment found: {wav_filename} (score: {score})")
-                print(f"  Original: '{original_transcription}'")
-                print(f"  New: '{new_transcription}'")
+                log_print(f"Bad segment found: {wav_filename} (score: {score})")
+                log_print(f"  Original: '{original_transcription}'")
+                log_print(f"  New: '{new_transcription}'")
                 
             else:
-                print(f"Good segment: {wav_filename} (score: {score})")
+                log_print(f"Good segment: {wav_filename} (score: {score})")
                 
             # Clean up trimmed file if it's different from original
             if trimmed_audio_file != wav_file and os.path.exists(trimmed_audio_file):
                 os.remove(trimmed_audio_file)
                 
         except Exception as e:
-            print(f"Error processing segment {wav_filename}: {e}")
+            log_print(f"Error processing segment {wav_filename}: {e}")
+            if progress_manager and len(wav_files) > 10:
+                progress_manager.update_step(1)
             continue
+        
+        if progress_manager and len(wav_files) > 10:
+            progress_manager.update_step(1)
 
     return bad_segments
 

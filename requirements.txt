@@ -7,6 +7,7 @@ flask
 flask-cors
 werkzeug
 dotenv
+rich>=13.0.0
 # 3d speaker
 modelscope
 speakerlab
