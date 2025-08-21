@@ -10,6 +10,8 @@ from werkzeug.utils import secure_filename
 from pathlib import Path
 from run import process_file
 import urllib.parse
+import tempfile
+from typing import List, Dict, Any
 
 split_bp = Blueprint('split', __name__)
 
@@ -154,6 +156,54 @@ def process_file_background(project_name, filename, file_path, projects_dir, pro
             'progress': 0,
             'message': f'Error: {str(e)}'
         }
+
+def load_json_file(file_path: Path) -> Dict[str, Any]:
+    """Load JSON data from file."""
+    if not file_path.exists():
+        return None
+    try:
+        with file_path.open('r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"Warning: Could not load {file_path}: {e}")
+        return None
+
+def get_time_range_from_segments(segments: List[Dict[str, Any]]) -> tuple:
+    """Get the overall time range (start_ms, end_ms) from a list of segments."""
+    if not segments:
+        return 0, 0
+    
+    start_times = []
+    end_times = []
+    
+    for seg in segments:
+        main_data = seg.get('main', {})
+        start_times.append(main_data.get('start_ms', 0))
+        end_times.append(main_data.get('end_ms', 0))
+    
+    return min(start_times), max(end_times)
+
+def filter_silences_in_range(silences_data: List[Dict[str, Any]], start_ms: int, end_ms: int) -> List[Dict[str, Any]]:
+    """Filter silence intervals to only those within the given time range."""
+    filtered = []
+    for silence in silences_data:
+        silence_start = silence.get('start', 0)
+        silence_end = silence.get('end', 0)
+        # Include silence if it overlaps with the time range
+        if silence_start < end_ms and silence_end > start_ms:
+            filtered.append(silence)
+    return filtered
+
+def filter_transcription_tokens(transcription_data: List[Dict[str, Any]], start_ms: int, end_ms: int) -> List[Dict[str, Any]]:
+    """Filter transcription tokens to only those within the given time range."""
+    filtered = []
+    for token in transcription_data:
+        token_start = token.get('start', 0) * 1000  # Convert to ms
+        token_end = token.get('end', 0) * 1000  # Convert to ms
+        # Include token if it overlaps with the time range
+        if token_start < end_ms and token_end > start_ms:
+            filtered.append(token)
+    return filtered
 
 def create_split_routes(projects_dir, processing_status):
     """Create and return the split blueprint with injected dependencies"""
@@ -618,6 +668,138 @@ def create_split_routes(projects_dir, processing_status):
                 'message': f'Successfully cleaned {len(deleted_items)} items',
                 'deleted_items': deleted_items
             }), 200
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/splits/<path:splitnam>/<filename>/export-visible-segments', methods=['POST'])
+    def export_visible_segments(project_name, splitnam, filename):
+        """Export visible segments as JSON file for download"""
+        try:
+            data = request.get_json()
+            start_segment = data.get('start_segment')
+            end_segment = data.get('end_segment')
+            
+            if not start_segment or not end_segment:
+                return jsonify({'error': 'start_segment and end_segment are required'}), 400
+                
+            if start_segment < 1:
+                return jsonify({'error': 'start_segment must be >= 1'}), 400
+                
+            if end_segment < start_segment:
+                return jsonify({'error': 'end_segment must be >= start_segment'}), 400
+            
+            # Construct the segments file path
+            segments_file = os.path.join(projects_dir, project_name, 'splits', splitnam, f"{filename}_segments.json")
+            segments_path = Path(segments_file)
+            
+            if not segments_path.exists():
+                return jsonify({'error': f'Segments file not found: {segments_file}'}), 404
+            
+            # Load segments data
+            segments_data = load_json_file(segments_path)
+            if not segments_data:
+                return jsonify({'error': f'Could not load segments file: {segments_file}'}), 400
+            
+            all_segments = segments_data['segments']
+            original_audio_path = segments_data.get('audio_path', '')
+            
+            # Validate segment numbers - check available seg_idx values
+            available_seg_ids = [seg['seg_idx'] for seg in all_segments]
+            min_seg_id = min(available_seg_ids) if available_seg_ids else 1
+            max_seg_id = max(available_seg_ids) if available_seg_ids else 0
+            
+            if start_segment < min_seg_id or start_segment > max_seg_id:
+                return jsonify({'error': f'start_segment ({start_segment}) not found. Available seg_idx range: {min_seg_id}-{max_seg_id}'}), 400
+            
+            if end_segment < min_seg_id or end_segment > max_seg_id:
+                return jsonify({'error': f'end_segment ({end_segment}) not found. Available seg_idx range: {min_seg_id}-{max_seg_id}'}), 400
+            
+            # Extract the requested segments by seg_idx (not array position)
+            selected_segments = []
+            for segment in all_segments:
+                seg_idx = segment['seg_idx']
+                if start_segment <= seg_idx <= end_segment:
+                    selected_segments.append(segment)
+            
+            if not selected_segments:
+                return jsonify({'error': f'No segments found with seg_idx between {start_segment} and {end_segment}'}), 400
+            
+            # Get time range for the selected segments
+            start_ms, end_ms = get_time_range_from_segments(selected_segments)
+            
+            # Load raw segments if available
+            raw_segments = []
+            original_raw_file = Path(str(segments_path).replace('_segments.json', '_segments_raw.json'))
+            if original_raw_file.exists():
+                raw_segments_data = load_json_file(original_raw_file)
+                if raw_segments_data:
+                    raw_all_segments = raw_segments_data['segments']
+                    # Extract the same range from raw segments by seg_idx
+                    for segment in raw_all_segments:
+                        seg_idx = segment['seg_idx']
+                        if start_segment <= seg_idx <= end_segment:
+                            raw_segments.append(segment)
+            
+            # Load silences
+            silences = []
+            silences_file = Path(str(segments_path).replace('_segments.json', '_silences.json'))
+            if silences_file.exists():
+                silences_data = load_json_file(silences_file)
+                if silences_data:
+                    # Filter silences to the time range of selected segments
+                    silences = filter_silences_in_range(silences_data, start_ms, end_ms)
+            
+            # Load transcription
+            transcription_tokens = []
+            transcription_file = Path(str(segments_path).replace('_segments.json', '_transcription.json'))
+            if transcription_file.exists():
+                transcription_data = load_json_file(transcription_file)
+                if transcription_data:
+                    # Filter transcription tokens to the time range of selected segments
+                    transcription_tokens = filter_transcription_tokens(transcription_data, start_ms, end_ms)
+            
+            # Create comprehensive output data (same format as m6_get_segment.py)
+            output_data = {
+                'metadata': {
+                    'extraction_info': {
+                        'start_segment_id': start_segment,
+                        'end_segment_id': end_segment,
+                        'time_range_ms': [start_ms, end_ms],
+                        'extracted_at': datetime.now().isoformat()
+                    },
+                    'source_info': {
+                        'segments_file': str(segments_path),
+                        'extracted_segments_count': len(selected_segments),
+                        'audio_path': original_audio_path,
+                        'files_included': {
+                            'segments': True,
+                            'raw_segments': len(raw_segments) > 0,
+                            'silences': len(silences) > 0,
+                            'transcriptions': len(transcription_tokens) > 0
+                        }
+                    }
+                },
+                'segments': selected_segments,
+                'raw_segments': raw_segments,
+                'silences': silences,
+                'transcription_tokens': transcription_tokens
+            }
+            
+            # Generate filename for download
+            download_filename = f"visible_segments_{start_segment}_{end_segment}.json"
+            
+            # Create response with JSON data
+            response_json = json.dumps(output_data, indent=2, ensure_ascii=False)
+            response = Response(
+                response_json,
+                mimetype='application/json',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{download_filename}"'
+                }
+            )
+            
+            return response
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500

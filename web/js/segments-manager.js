@@ -108,6 +108,94 @@ class SegmentsManager {
             podcastManager.showMessage('Error saving segments: ' + error.message, true);
         }
     }
+
+    async exportVisibleSegments() {
+        const project = podcastManager.currentProject;
+        const filename = document.getElementById('dataFileSelect').value;
+        const splitname = document.getElementById('dataSplitSelect').value;
+        
+        if (!project || !filename || !splitname) {
+            podcastManager.showMessage('Please select project, file, and split', true);
+            return;
+        }
+
+        if (!this.dataViewer.waveformData.segments || this.dataViewer.waveformData.segments.length === 0) {
+            podcastManager.showMessage('No segments loaded', true);
+            return;
+        }
+
+        // Calculate visible time range
+        const viewDuration = (this.dataViewer.waveformData.canvasWidth * this.dataViewer.waveformData.zoom) / 1000; // in seconds
+        const viewStartTime = this.dataViewer.waveformData.viewStart; // in seconds
+        const viewEndTime = viewStartTime + viewDuration; // in seconds
+
+        // Find segments that are visible (overlap with viewport)
+        const visibleSegments = this.dataViewer.waveformData.segments.filter(segment => {
+            const segmentStart = segment.start; // in seconds
+            const segmentEnd = segment.end; // in seconds
+            
+            // Check if segment overlaps with visible time range
+            return segmentStart < viewEndTime && segmentEnd > viewStartTime;
+        });
+
+        if (visibleSegments.length === 0) {
+            podcastManager.showMessage('No segments visible in current viewport', true);
+            return;
+        }
+
+        // Get the segment ID range for visible segments
+        const visibleSegIds = visibleSegments.map(seg => seg.seg_idx || 0).filter(id => id > 0);
+        if (visibleSegIds.length === 0) {
+            podcastManager.showMessage('Visible segments have no valid segment IDs', true);
+            return;
+        }
+
+        const minSegId = Math.min(...visibleSegIds);
+        const maxSegId = Math.max(...visibleSegIds);
+
+        try {
+            podcastManager.showMessage(`Exporting ${visibleSegments.length} visible segments (${minSegId}-${maxSegId})...`);
+            
+            const response = await fetch(`/api/projects/${project}/splits/${filename}/${splitname}/export-visible-segments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    start_segment: minSegId,
+                    end_segment: maxSegId
+                })
+            });
+
+            if (response.ok) {
+                // Get the filename from the response headers or construct it
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = 'visible_segments.json';
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename="(.+)"/);
+                    if (match) filename = match[1];
+                }
+
+                // Download the file
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                podcastManager.showMessage(`Exported ${visibleSegments.length} visible segments successfully!`);
+            } else {
+                const error = await response.json();
+                podcastManager.showMessage('Error exporting visible segments: ' + (error.error || 'Unknown error'), true);
+            }
+        } catch (error) {
+            podcastManager.showMessage('Error exporting visible segments: ' + error.message, true);
+        }
+    }
 }
 
 async function buildSplits() {
@@ -140,4 +228,12 @@ async function buildSplits() {
     } catch (error) {
         podcastManager.showMessage('Error starting build process: ' + error.message, true);
     }
+}
+
+async function exportVisibleSegments() {
+    if (!dataViewer.segmentsManager) {
+        podcastManager.showMessage('Segments manager not available', true);
+        return;
+    }
+    await dataViewer.segmentsManager.exportVisibleSegments();
 }

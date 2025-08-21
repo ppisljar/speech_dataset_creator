@@ -145,6 +145,12 @@ class DataViewer {
                 } else {
                     this.waveformData.segments = [];
                 }
+                
+                // Enable export button if segments are loaded
+                const exportBtn = document.getElementById('exportVisibleSegmentsBtn');
+                if (exportBtn) {
+                    exportBtn.disabled = this.waveformData.segments.length === 0;
+                }
             }
             if (rawSegmentsRes.ok) {
                 const rawSegments = await rawSegmentsRes.json();
