@@ -704,3 +704,34 @@ input, select {
 .preset-btn:hover {
     background-color: #5a6268;
 }
+
+/* Clean Options Modal Styles */
+.clean-options-modal {
+    width: 650px;
+    max-width: 90%;
+}
+
+.clean-options-container {
+    flex: 1;
+    overflow-y: auto;
+    margin: 10px 0;
+    padding-right: 5px;
+}
+
+.clean-options-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.clean-options-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.clean-options-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.clean-options-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}

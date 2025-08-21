@@ -34,6 +34,73 @@ def load_project_settings(projects_dir, project_name):
     
     return settings
 
+def run_all_background(project_name, options, projects_dir, processing_status):
+    """Background function to run the full run_all.py pipeline with options"""
+    run_all_key = f"{project_name}_run_all"
+    
+    try:
+        processing_status[run_all_key] = {
+            'status': 'processing',
+            'started_at': datetime.now().isoformat(),
+            'progress': 0,
+            'message': 'Starting run_all processing...'
+        }
+        
+        # Build command arguments for run_all.py
+        cmd = ['python', 'run_all.py', project_name]
+        
+        if options.get('override'):
+            cmd.append('--override')
+        if options.get('segment'):
+            cmd.append('--segment')
+        if options.get('validate'):
+            cmd.append('--validate')
+        if options.get('clean'):
+            cmd.append('--clean')
+        if options.get('meta'):
+            cmd.append('--meta')
+        if options.get('copy'):
+            cmd.append('--copy')
+        if options.get('skip'):
+            cmd.append('--skip')
+        
+        processing_status[run_all_key]['progress'] = 10
+        processing_status[run_all_key]['message'] = f'Running: {" ".join(cmd)}'
+        
+        # Execute run_all.py script
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+        
+        processing_status[run_all_key]['progress'] = 90
+        processing_status[run_all_key]['message'] = 'Finalizing run_all processing...'
+        
+        if result.returncode == 0:
+            processing_status[run_all_key] = {
+                'status': 'completed',
+                'started_at': processing_status[run_all_key]['started_at'],
+                'completed_at': datetime.now().isoformat(),
+                'progress': 100,
+                'message': 'Run all completed successfully',
+                'output': result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout  # Last 1000 chars
+            }
+        else:
+            processing_status[run_all_key] = {
+                'status': 'failed',
+                'started_at': processing_status[run_all_key]['started_at'],
+                'completed_at': datetime.now().isoformat(),
+                'progress': 0,
+                'message': f'Run all failed: {result.stderr[-500:] if result.stderr else "Unknown error"}',
+                'output': result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout
+            }
+            
+    except Exception as e:
+        processing_status[run_all_key] = {
+            'status': 'failed',
+            'started_at': processing_status.get(run_all_key, {}).get('started_at', datetime.now().isoformat()),
+            'completed_at': datetime.now().isoformat(),
+            'progress': 0,
+            'message': f'Run all error: {str(e)}'
+        }
+
 def process_file_background(project_name, filename, file_path, projects_dir, processing_status, override=False, segment=False, settings=None):
     """Background function to process a file through the pipeline"""
     process_key = f"{project_name}_{filename}"
@@ -201,8 +268,20 @@ def create_split_routes(projects_dir, processing_status):
 
     @split_bp.route('/api/projects/<project_name>/run', methods=['POST'])
     def run_all_files(project_name):
-        """Run processing on all files in the project's raw directory"""
+        """Run processing on all files in the project's raw directory with advanced options"""
         try:
+            # Get options from request body
+            data = request.get_json() or {}
+            options = {
+                'override': data.get('override', False),
+                'segment': data.get('segment', False), 
+                'validate': data.get('validate', False),
+                'clean': data.get('clean', False),
+                'meta': data.get('meta', False),
+                'copy': data.get('copy', False),
+                'skip': data.get('skip', False)
+            }
+
             # Get the raw directory path
             raw_dir_path = os.path.join(projects_dir, project_name, 'raw')
             if not os.path.exists(raw_dir_path):
@@ -229,27 +308,24 @@ def create_split_routes(projects_dir, processing_status):
                     'error': f'Some files are already being processed: {", ".join(already_processing)}'
                 }), 409
 
-            # Load project settings
-            settings = load_project_settings(projects_dir, project_name)
+            # Check if run_all processing is already running
+            run_all_key = f"{project_name}_run_all"
+            if run_all_key in processing_status and processing_status[run_all_key]['status'] == 'processing':
+                return jsonify({'error': 'Run all is already in progress for this project'}), 409
 
-            # Start background processing for all files
-            processing_keys = []
-            for filename in audio_files:
-                raw_file_path = os.path.join(raw_dir_path, filename)
-                process_key = f"{project_name}_{filename}"
-                processing_keys.append(process_key)
-                
-                thread = threading.Thread(
-                    target=process_file_background,
-                    args=(project_name, filename, raw_file_path, projects_dir, processing_status, False, False, settings)
-                )
-                thread.daemon = True
-                thread.start()
+            # Start background run_all processing
+            thread = threading.Thread(
+                target=run_all_background,
+                args=(project_name, options, projects_dir, processing_status)
+            )
+            thread.daemon = True
+            thread.start()
 
             return jsonify({
-                'message': f'Processing started for {len(audio_files)} files in project {project_name}',
+                'message': f'Run all started for project {project_name} with {len(audio_files)} files',
                 'files': audio_files,
-                'processing_keys': processing_keys
+                'processing_key': run_all_key,
+                'options': options
             }), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -394,6 +470,139 @@ def create_split_routes(projects_dir, processing_status):
             os.remove(file_path)
             
             return jsonify({'message': f'Successfully deleted {filename_to_delete}'}), 200
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/run_all', methods=['POST'])
+    def run_all_with_options(project_name):
+        """Run all processing with specific options"""
+        try:
+            data = request.get_json()
+            options = data.get('options', {}) if data else {}
+            
+            # Get list of audio files in project
+            audio_dir = os.path.join(projects_dir, project_name, 'audio')
+            if not os.path.exists(audio_dir):
+                return jsonify({'error': 'Project audio directory not found'}), 404
+            
+            audio_files = [f for f in os.listdir(audio_dir) 
+                          if f.lower().endswith(('.wav', '.mp3', '.m4a'))]
+            
+            if not audio_files:
+                return jsonify({'error': 'No audio files found in project'}), 404
+
+            # Check if any files are already being processed
+            already_processing = []
+            for filename in audio_files:
+                process_key = f"{project_name}_{filename}"
+                if process_key in processing_status and processing_status[process_key]['status'] == 'processing':
+                    already_processing.append(filename)
+
+            if already_processing:
+                return jsonify({
+                    'error': f'Some files are already being processed: {", ".join(already_processing)}'
+                }), 409
+
+            # Check if run_all processing is already running
+            run_all_key = f"{project_name}_run_all"
+            if run_all_key in processing_status and processing_status[run_all_key]['status'] == 'processing':
+                return jsonify({'error': 'Run all is already in progress for this project'}), 409
+
+            # Start background run_all processing
+            thread = threading.Thread(
+                target=run_all_background,
+                args=(project_name, options, projects_dir, processing_status)
+            )
+            thread.daemon = True
+            thread.start()
+
+            return jsonify({
+                'message': f'Run all started for project {project_name} with {len(audio_files)} files',
+                'files': audio_files,
+                'processing_key': run_all_key,
+                'options': options
+            }), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @split_bp.route('/api/projects/<project_name>/clean_granular', methods=['POST'])
+    def clean_granular(project_name):
+        """Clean specific directories and file types"""
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'Request body is required'}), 400
+            
+            options = data.get('options', {})
+            project_path = os.path.join(projects_dir, project_name)
+            
+            if not os.path.exists(project_path):
+                return jsonify({'error': 'Project not found'}), 404
+
+            deleted_items = []
+
+            # Clean directories
+            directories = options.get('directories', {})
+            for dir_name, should_clean in directories.items():
+                if should_clean:
+                    dir_path = os.path.join(project_path, dir_name)
+                    if os.path.exists(dir_path):
+                        if dir_name == 'output':
+                            # For output, only clean files related to this project
+                            output_dir = os.path.join(os.path.dirname(projects_dir), 'output')
+                            project_files = [f for f in os.listdir(output_dir) 
+                                           if f.startswith(project_name)]
+                            for file in project_files:
+                                file_path = os.path.join(output_dir, file)
+                                if os.path.isfile(file_path):
+                                    os.remove(file_path)
+                                    deleted_items.append(f"output/{file}")
+                                elif os.path.isdir(file_path):
+                                    shutil.rmtree(file_path)
+                                    deleted_items.append(f"output/{file}/")
+                        else:
+                            # Clean entire directory
+                            for item in os.listdir(dir_path):
+                                item_path = os.path.join(dir_path, item)
+                                if os.path.isfile(item_path):
+                                    os.remove(item_path)
+                                    deleted_items.append(f"{dir_name}/{item}")
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                                    deleted_items.append(f"{dir_name}/{item}/")
+
+            # Clean specific file types
+            file_types = options.get('file_types', {})
+            splits_dir = os.path.join(project_path, 'splits')
+            if os.path.exists(splits_dir):
+                for split_folder in os.listdir(splits_dir):
+                    split_path = os.path.join(splits_dir, split_folder)
+                    if os.path.isdir(split_path):
+                        for file_type, should_clean in file_types.items():
+                            if should_clean:
+                                pattern_map = {
+                                    'transcriptions': '*_transcription.json',
+                                    'speakers': '*_pyannote.*',
+                                    'segments': '*_segments.json',
+                                    'silences': '*_silences.json',
+                                    'wespeaker': '*_wespeaker.*',
+                                    '3dspeaker': '*_3dspeaker.*',
+                                    'speaker_db': '*_speaker_db.npy'
+                                }
+                                
+                                if file_type in pattern_map:
+                                    pattern = pattern_map[file_type]
+                                    import glob
+                                    files_to_delete = glob.glob(os.path.join(split_path, pattern))
+                                    for file_path in files_to_delete:
+                                        os.remove(file_path)
+                                        deleted_items.append(f"splits/{split_folder}/{os.path.basename(file_path)}")
+
+            return jsonify({
+                'message': f'Successfully cleaned {len(deleted_items)} items',
+                'deleted_items': deleted_items
+            }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500

@@ -268,20 +268,99 @@ def create_project_routes(projects_dir, processing_status):
     # Clean and Export endpoints
     @project_bp.route('/api/projects/<project_name>/clean', methods=['POST'])
     def clean_project(project_name):
-        """Clean a project's splits and optionally raw files"""
+        """Clean a project with granular options"""
         try:
             data = request.get_json() or {}
+            
+            # Granular directory cleaning options
+            clean_splits = data.get('splits', False)
+            clean_audio = data.get('audio', False) 
             clean_raw = data.get('raw', False)
+            clean_output = data.get('output', False)
             
-            # Import the clean function from m10_archive
-            from m10_archive import clean
+            # Granular file type cleaning options
+            clean_transcriptions = data.get('transcriptions', False)
+            clean_speakers = data.get('speakers', False)
+            clean_segments = data.get('segments', False)
+            clean_silences = data.get('silences', False)
+            clean_other = data.get('other', False)
             
-            success = clean(project_name, raw=clean_raw)
+            project_path = os.path.join(projects_dir, project_name)
+            if not os.path.exists(project_path):
+                return jsonify({'error': 'Project not found'}), 404
             
-            if success:
-                return jsonify({'message': f'Project {project_name} cleaned successfully'}), 200
-            else:
-                return jsonify({'error': 'Failed to clean project'}), 500
+            # Track what was cleaned
+            cleaned_items = []
+            
+            # Directory-level cleaning
+            if clean_splits:
+                splits_dir = os.path.join(project_path, 'splits')
+                if os.path.exists(splits_dir):
+                    shutil.rmtree(splits_dir)
+                    os.makedirs(splits_dir, exist_ok=True)
+                    cleaned_items.append('splits directory')
+                    
+            if clean_audio:
+                audio_dir = os.path.join(project_path, 'audio')
+                if os.path.exists(audio_dir):
+                    shutil.rmtree(audio_dir)
+                    os.makedirs(audio_dir, exist_ok=True)
+                    cleaned_items.append('audio directory')
+                    
+            if clean_raw:
+                raw_dir = os.path.join(project_path, 'raw')
+                if os.path.exists(raw_dir):
+                    shutil.rmtree(raw_dir)
+                    os.makedirs(raw_dir, exist_ok=True)
+                    cleaned_items.append('raw directory')
+                    
+            if clean_output:
+                output_dir = os.path.join(project_path, 'output')
+                if os.path.exists(output_dir):
+                    shutil.rmtree(output_dir)
+                    os.makedirs(output_dir, exist_ok=True)
+                    cleaned_items.append('output directory')
+            
+            # File type-level cleaning (only in splits directory)
+            splits_dir = os.path.join(project_path, 'splits')
+            if os.path.exists(splits_dir):
+                file_patterns = []
+                
+                if clean_transcriptions:
+                    file_patterns.extend(['*_transcription.json'])
+                if clean_speakers:
+                    file_patterns.extend(['*_pyannote.csv', '*_pyannote.rttm', '*_3dspeaker.csv', '*_3dspeaker.rttm', '*_wespeaker.csv', '*_wespeaker.rttm', '*_speaker_db.npy'])
+                if clean_segments:
+                    file_patterns.extend(['*_segments.json'])
+                if clean_silences:
+                    file_patterns.extend(['*_silences.json'])
+                if clean_other:
+                    file_patterns.extend(['*.txt', '*.log', '*.tmp'])
+                    
+                # Remove matching files
+                removed_count = 0
+                for root, dirs, files in os.walk(splits_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        for pattern in file_patterns:
+                            import fnmatch
+                            if fnmatch.fnmatch(file, pattern):
+                                try:
+                                    os.remove(file_path)
+                                    removed_count += 1
+                                except OSError:
+                                    pass  # Ignore errors
+                
+                if removed_count > 0:
+                    cleaned_items.append(f'{removed_count} processing files')
+            
+            if not cleaned_items:
+                return jsonify({'message': 'No items were selected for cleaning'}), 200
+            
+            return jsonify({
+                'message': f'Project {project_name} cleaned successfully',
+                'cleaned': cleaned_items
+            }), 200
                 
         except Exception as e:
             return jsonify({'error': str(e)}), 500

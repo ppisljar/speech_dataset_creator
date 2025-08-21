@@ -196,6 +196,154 @@
         </div>
     </div>
 
+    <!-- Clean Options Modal -->
+    <div id="cleanOptionsModal" class="modal">
+        <div class="modal-content clean-options-modal">
+            <div class="modal-header">
+                <h3>Clean Project Data</h3>
+                <span class="close" onclick="closeModal('cleanOptionsModal')">&times;</span>
+            </div>
+            <div class="clean-options-container">
+                <p class="options-description">Select what you want to clean from this project. <strong>Warning:</strong> This action cannot be undone!</p>
+                
+                <div class="options-grid">
+                    <div class="option-group">
+                        <h4>Project Directories</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_raw">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Raw Audio Files</span>
+                                <span class="option-desc">Delete all original uploaded audio files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_splits_full">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Splits (Complete)</span>
+                                <span class="option-desc">Delete entire splits directory including all processed files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_splits_partial">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Splits (Keep Audio)</span>
+                                <span class="option-desc">Delete subfolders but keep cleaned audio files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_audio">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Audio Output</span>
+                                <span class="option-desc">Delete final processed audio output directory</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="option-group">
+                        <h4>Split File Types</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_silence">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Silence Files</span>
+                                <span class="option-desc">Delete silence detection JSON files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_pyannote_csv">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Pyannote CSV</span>
+                                <span class="option-desc">Delete pyannote speaker diarization CSV files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_pyannote_rttm">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Pyannote RTTM</span>
+                                <span class="option-desc">Delete pyannote RTTM format files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_transcription">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Transcription Files</span>
+                                <span class="option-desc">Delete speech-to-text transcription JSON files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_wespeaker">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">WeSpeaker Files</span>
+                                <span class="option-desc">Delete WeSpeaker diarization output files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_3dspeaker">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">3DSpeaker Files</span>
+                                <span class="option-desc">Delete 3D-Speaker diarization output files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_speakerdb">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Speaker Database</span>
+                                <span class="option-desc">Delete speaker.db files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_segments">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Segment Files</span>
+                                <span class="option-desc">Delete segment JSON configuration files</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="cleanOption_raw_segments">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Raw Segments</span>
+                                <span class="option-desc">Delete raw segment audio files</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="preset-buttons">
+                    <button onclick="setCleanPreset('none')" class="preset-btn">None</button>
+                    <button onclick="setCleanPreset('processing')" class="preset-btn">Processing Files</button>
+                    <button onclick="setCleanPreset('all')" class="preset-btn">Everything</button>
+                </div>
+            </div>
+            <div class="button-group">
+                <button onclick="closeModal('cleanOptionsModal')">Cancel</button>
+                <button onclick="startCleanOperation()" class="clean-btn">Clean Selected</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add Files Modal -->
     <div id="addFilesModal" class="modal">
         <div class="modal-content add-files-modal">

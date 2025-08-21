@@ -811,28 +811,118 @@ async function cleanProject() {
         return;
     }
 
-    const cleanRaw = confirm(`Clean project "${podcastManager.currentProject}"?\n\nThis will remove all processed files from the splits directory.\n\nClick "OK" to clean only splits, or "Cancel" to abort.\n\nTo also clean raw files, hold Shift and click OK.`);
+    // Show the clean options modal
+    showCleanOptionsModal();
+}
+
+// Clean Options Modal Functions
+function showCleanOptionsModal() {
+    // Reset all checkboxes to unchecked
+    const checkboxes = document.querySelectorAll('#cleanOptionsModal input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
     
-    if (!cleanRaw) {
+    document.getElementById('cleanOptionsModal').style.display = 'block';
+}
+
+function setCleanPreset(presetType) {
+    const checkboxes = {
+        raw: document.getElementById('cleanOption_raw'),
+        splits_full: document.getElementById('cleanOption_splits_full'),
+        splits_partial: document.getElementById('cleanOption_splits_partial'),
+        audio: document.getElementById('cleanOption_audio'),
+        silence: document.getElementById('cleanOption_silence'),
+        pyannote_csv: document.getElementById('cleanOption_pyannote_csv'),
+        pyannote_rttm: document.getElementById('cleanOption_pyannote_rttm'),
+        transcription: document.getElementById('cleanOption_transcription'),
+        wespeaker: document.getElementById('cleanOption_wespeaker'),
+        '3dspeaker': document.getElementById('cleanOption_3dspeaker'),
+        speakerdb: document.getElementById('cleanOption_speakerdb'),
+        segments: document.getElementById('cleanOption_segments'),
+        raw_segments: document.getElementById('cleanOption_raw_segments')
+    };
+    
+    // First, uncheck all
+    Object.values(checkboxes).forEach(checkbox => {
+        if (checkbox) checkbox.checked = false;
+    });
+    
+    switch(presetType) {
+        case 'none':
+            // All already unchecked
+            break;
+        case 'processing':
+            // Clean only processing files, keep raw and audio
+            if (checkboxes.silence) checkboxes.silence.checked = true;
+            if (checkboxes.pyannote_csv) checkboxes.pyannote_csv.checked = true;
+            if (checkboxes.pyannote_rttm) checkboxes.pyannote_rttm.checked = true;
+            if (checkboxes.transcription) checkboxes.transcription.checked = true;
+            if (checkboxes.wespeaker) checkboxes.wespeaker.checked = true;
+            if (checkboxes['3dspeaker']) checkboxes['3dspeaker'].checked = true;
+            if (checkboxes.speakerdb) checkboxes.speakerdb.checked = true;
+            if (checkboxes.segments) checkboxes.segments.checked = true;
+            break;
+        case 'all':
+            // Clean everything
+            Object.values(checkboxes).forEach(checkbox => {
+                if (checkbox) checkbox.checked = true;
+            });
+            break;
+    }
+}
+
+async function startCleanOperation() {
+    const project = podcastManager.currentProject;
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
         return;
     }
-
-    const includeRaw = window.event && window.event.shiftKey;
     
-    if (includeRaw) {
-        const confirmRaw = confirm(`WARNING: This will also delete all raw files!\n\nAre you absolutely sure you want to clean both splits AND raw files?`);
-        if (!confirmRaw) {
-            return;
-        }
+    // Collect selected options
+    const options = {
+        raw: document.getElementById('cleanOption_raw')?.checked || false,
+        splits_full: document.getElementById('cleanOption_splits_full')?.checked || false,
+        splits_partial: document.getElementById('cleanOption_splits_partial')?.checked || false,
+        audio: document.getElementById('cleanOption_audio')?.checked || false,
+        silence: document.getElementById('cleanOption_silence')?.checked || false,
+        pyannote_csv: document.getElementById('cleanOption_pyannote_csv')?.checked || false,
+        pyannote_rttm: document.getElementById('cleanOption_pyannote_rttm')?.checked || false,
+        transcription: document.getElementById('cleanOption_transcription')?.checked || false,
+        wespeaker: document.getElementById('cleanOption_wespeaker')?.checked || false,
+        '3dspeaker': document.getElementById('cleanOption_3dspeaker')?.checked || false,
+        speakerdb: document.getElementById('cleanOption_speakerdb')?.checked || false,
+        segments: document.getElementById('cleanOption_segments')?.checked || false,
+        raw_segments: document.getElementById('cleanOption_raw_segments')?.checked || false
+    };
+    
+    // Check if any options are selected
+    const hasSelections = Object.values(options).some(value => value);
+    if (!hasSelections) {
+        podcastManager.showMessage('Please select at least one item to clean', true);
+        return;
     }
-
+    
+    // Show confirmation dialog
+    const selectedItems = Object.entries(options)
+        .filter(([key, value]) => value)
+        .map(([key, value]) => key.replace(/_/g, ' '))
+        .join(', ');
+    
+    if (!confirm(`Are you sure you want to clean the following items from project "${project}"?\n\n${selectedItems}\n\nThis action cannot be undone!`)) {
+        return;
+    }
+    
+    // Close the modal
+    closeModal('cleanOptionsModal');
+    
     try {
-        const response = await fetch(`/api/projects/${podcastManager.currentProject}/clean`, {
+        const response = await fetch(`/api/projects/${project}/clean`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ raw: includeRaw })
+            body: JSON.stringify({ options: options })
         });
 
         const result = await response.json();
