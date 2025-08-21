@@ -181,31 +181,31 @@ class PodcastManager {
             const response = await fetch('/api/processing/status');
             const statuses = await response.json();
             
-            const statusDiv = document.getElementById('processingStatus');
+            const statusDiv = document.getElementById('statusTooltipContent');
             if (Object.keys(statuses).length === 0) {
-                statusDiv.innerHTML = '<p>No processing activities found.</p>';
+                statusDiv.innerHTML = 'No processing activities found.';
                 return;
             }
 
-            let html = '<table style="width: 100%; border-collapse: collapse;">';
-            html += '<tr><th style="border: 1px solid #ddd; padding: 8px;">File</th><th style="border: 1px solid #ddd; padding: 8px;">Status</th><th style="border: 1px solid #ddd; padding: 8px;">Progress</th><th style="border: 1px solid #ddd; padding: 8px;">Message</th><th style="border: 1px solid #ddd; padding: 8px;">Started</th></tr>';
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px;">';
+            html += '<tr><th style="border: 1px solid #ddd; padding: 4px; font-size: 11px;">File</th><th style="border: 1px solid #ddd; padding: 4px; font-size: 11px;">Status</th><th style="border: 1px solid #ddd; padding: 4px; font-size: 11px;">Progress</th></tr>';
             
             for (const [key, status] of Object.entries(statuses)) {
                 const progressColor = status.status === 'completed' ? 'green' : 
                                     status.status === 'failed' ? 'red' : 'blue';
+                const fileName = key.length > 30 ? key.substring(0, 30) + '...' : key;
                 html += `<tr>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${key}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px; color: ${progressColor};">${status.status}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${status.progress}%</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${status.message}</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">${new Date(status.started_at).toLocaleString()}</td>
+                    <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px;" title="${key}">${fileName}</td>
+                    <td style="border: 1px solid #ddd; padding: 4px; color: ${progressColor}; font-size: 11px;">${status.status}</td>
+                    <td style="border: 1px solid #ddd; padding: 4px; font-size: 11px;">${status.progress}%</td>
                 </tr>`;
             }
             html += '</table>';
             
             statusDiv.innerHTML = html;
         } catch (error) {
-            this.showMessage('Error loading processing status: ' + error.message, true);
+            const statusDiv = document.getElementById('statusTooltipContent');
+            statusDiv.innerHTML = 'Error loading status: ' + error.message;
         }
     }
 }
@@ -712,6 +712,10 @@ async function monitorProcessing(project, filename) {
 }
 
 function loadProcessingStatus() {
+    podcastManager.loadProcessingStatus();
+}
+
+function refreshProcessingStatus() {
     podcastManager.loadProcessingStatus();
 }
 
