@@ -68,6 +68,11 @@
                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z M11,15V12H9V10H11V7H13V10H15V12H13V15H11Z"/>
                         </svg>
                     </button>
+                    <button class="icon-btn" id="addUrlsBtn" onclick="showAddUrlsModal()" data-tooltip="Add URLs">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16,6H13V7.9H16C18.26,7.9 20.1,9.73 20.1,12A4.1,4.1 0 0,1 16,16.1H13V18H16A6,6 0 0,0 22,12C22,8.68 19.31,6 16,6M10.9,12C10.9,9.73 9.06,7.9 6.8,7.9H4V6H6.8C10.15,6 12.9,8.68 12.9,12C12.9,15.32 10.15,18 6.8,18H4V16.1H6.8C9.06,16.1 10.9,14.27 10.9,12M8,11V13H16V11H8Z"/>
+                        </svg>
+                    </button>
                     <button class="icon-btn run-btn" onclick="runAllFiles()" id="runAllBtn" disabled data-tooltip="Run All Files">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M8,5.14V19.14L19,12.14L8,5.14Z"/>
@@ -370,6 +375,27 @@
             <div class="button-group">
                 <button onclick="closeModal('addFilesModal')">Cancel</button>
                 <button onclick="uploadSelectedFiles()" id="uploadFilesBtn" disabled>Upload Files</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add URLs Modal -->
+    <div id="addUrlsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add URLs to Project</h3>
+                <span class="close" onclick="closeModal('addUrlsModal')">&times;</span>
+            </div>
+            <div class="form-group">
+                <label for="urlsTextarea">Audio File URLs (one per line):</label>
+                <textarea id="urlsTextarea" rows="10" placeholder="Paste your audio file URLs here, one per line.&#10;&#10;Example:&#10;https://example.com/audio1.mp3&#10;https://example.com/audio2.wav&#10;https://example.com/audio3.m4a" style="width: 100%; font-family: monospace; padding: 10px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
+            </div>
+            <div class="form-group">
+                <small style="color: #666;">Supported formats: MP3, WAV, M4A, FLAC. Files will be automatically converted to WAV format.</small>
+            </div>
+            <div class="button-group">
+                <button onclick="closeModal('addUrlsModal')">Cancel</button>
+                <button onclick="submitUrls()" id="submitUrlsBtn">Download URLs</button>
             </div>
         </div>
     </div>

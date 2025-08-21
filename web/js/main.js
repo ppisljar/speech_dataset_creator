@@ -159,6 +159,7 @@ class PodcastManager {
         const deleteBtn = document.getElementById('deleteProjectBtn');
         const editBtn = document.getElementById('editProjectBtn');
         const addFilesBtn = document.getElementById('addFilesBtn');
+        const addUrlsBtn = document.getElementById('addUrlsBtn');
         const runAllBtn = document.getElementById('runAllBtn');
         const cleanBtn = document.getElementById('cleanProjectBtn');
         const exportBtn = document.getElementById('exportProjectBtn');
@@ -168,6 +169,7 @@ class PodcastManager {
             deleteBtn.disabled = false;
             editBtn.disabled = false;
             addFilesBtn.disabled = false;
+            addUrlsBtn.disabled = false;
             runAllBtn.disabled = false;
             cleanBtn.disabled = false;
             exportBtn.disabled = false;
@@ -180,6 +182,7 @@ class PodcastManager {
             deleteBtn.disabled = true;
             editBtn.disabled = true;
             addFilesBtn.disabled = true;
+            addUrlsBtn.disabled = true;
             runAllBtn.disabled = true;
             cleanBtn.disabled = true;
             exportBtn.disabled = true;
@@ -642,6 +645,120 @@ async function uploadSelectedFiles() {
         uploadBtn.disabled = false;
         uploadBtn.textContent = 'Upload Files';
     }
+}
+
+function showAddUrlsModal() {
+    const project = podcastManager.currentProject;
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
+        return;
+    }
+    
+    // Clear the textarea
+    document.getElementById('urlsTextarea').value = '';
+    document.getElementById('addUrlsModal').style.display = 'block';
+}
+
+async function submitUrls() {
+    const project = podcastManager.currentProject;
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
+        return;
+    }
+    
+    const urlsText = document.getElementById('urlsTextarea').value.trim();
+    if (!urlsText) {
+        podcastManager.showMessage('Please enter at least one URL', true);
+        return;
+    }
+    
+    // Parse URLs and count them
+    const urls = urlsText.split('\n').map(url => url.trim()).filter(url => url);
+    if (urls.length === 0) {
+        podcastManager.showMessage('No valid URLs found', true);
+        return;
+    }
+    
+    const submitBtn = document.getElementById('submitUrlsBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Starting Download...';
+    
+    try {
+        const response = await fetch(`/api/projects/${project}/download-urls`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                urls: urlsText 
+            })
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+            podcastManager.showMessage(result.message);
+            closeModal('addUrlsModal');
+            
+            // Start monitoring the download process
+            if (result.processing_key) {
+                monitorUrlDownload(result.processing_key);
+            }
+            
+            // Refresh the file list after a short delay
+            setTimeout(() => {
+                const globalProjectSelect = document.getElementById('globalProjectSelect');
+                if (globalProjectSelect.value) {
+                    globalProjectSelect.dispatchEvent(new Event('change'));
+                }
+            }, 2000);
+        } else {
+            podcastManager.showMessage(result.error, true);
+        }
+    } catch (error) {
+        podcastManager.showMessage('Error starting download: ' + error.message, true);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Download URLs';
+    }
+}
+
+async function monitorUrlDownload(processKey) {
+    const checkStatus = async () => {
+        try {
+            const response = await fetch('/api/processing/status');
+            const statuses = await response.json();
+            
+            if (response.ok && statuses[processKey]) {
+                const status = statuses[processKey];
+                
+                if (status.status === 'processing') {
+                    podcastManager.showMessage(`Download in progress: ${status.message}`);
+                    setTimeout(checkStatus, 3000);
+                } else if (status.status === 'completed') {
+                    podcastManager.showMessage(`Download completed: ${status.message}`);
+                    // Refresh the file list
+                    const globalProjectSelect = document.getElementById('globalProjectSelect');
+                    if (globalProjectSelect.value) {
+                        globalProjectSelect.dispatchEvent(new Event('change'));
+                    }
+                } else if (status.status === 'completed_with_errors') {
+                    podcastManager.showMessage(`Download completed with errors: ${status.message}`, true);
+                    // Refresh the file list
+                    const globalProjectSelect = document.getElementById('globalProjectSelect');
+                    if (globalProjectSelect.value) {
+                        globalProjectSelect.dispatchEvent(new Event('change'));
+                    }
+                } else if (status.status === 'failed') {
+                    podcastManager.showMessage(`Download failed: ${status.message}`, true);
+                }
+            }
+        } catch (error) {
+            console.error('Error checking download status:', error);
+        }
+    };
+    
+    // Start checking status
+    setTimeout(checkStatus, 1000);
 }
 
 async function runAllFiles() {
