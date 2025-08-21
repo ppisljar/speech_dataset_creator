@@ -231,7 +231,9 @@ def create_project_routes(projects_dir, processing_status):
                     'minSilenceLength': 500,
                     'maxSpeakers': 0,
                     'silencePad': 50,
-                    'language': 'sl'
+                    'language': 'sl',
+                    'buildSubsegments': True,
+                    'joinSubsegments': False
                 }
                 return jsonify(default_settings)
             

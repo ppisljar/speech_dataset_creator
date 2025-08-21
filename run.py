@@ -177,7 +177,10 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                 else:
                     # If segmentation is enabled, process the segments
                     print(f"Segmenting {split_path} with segments file {segments_file}")
-                    generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad)
+                    # Extract subsegment settings from project config
+                    build_subsegments = settings.get('buildSubsegments', True) if settings else True
+                    join_subsegments = settings.get('joinSubsegments', False) if settings else False
+                    generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad, build_subsegments=build_subsegments, join_subsegments=join_subsegments)
 
 def main():
     """

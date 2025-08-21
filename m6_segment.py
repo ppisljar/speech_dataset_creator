@@ -961,7 +961,56 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     print(f"[ok] Computed {len(segments)} segments and saved to {outfile}")
 
 
-def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE, silence_pad_ms: int = 50) -> None:
+def create_joined_subsegments(sub_segs_data: List[dict]) -> List[dict]:
+    """
+    Create additional joined subsegments from existing subsegments.
+    For segments with 3 or more subsegments, creates combinations of 2+ consecutive subsegments.
+    
+    :param sub_segs_data: List of subsegment dictionaries
+    :return: List of additional joined subsegments
+    """
+    if len(sub_segs_data) < 3:
+        return []
+    
+    joined_subsegments = []
+    
+    # Create joined subsegments of various lengths
+    for length in range(2, len(sub_segs_data) + 1):  # length 2 to N
+        for start_idx in range(len(sub_segs_data) - length + 1):
+            end_idx = start_idx + length - 1
+            
+            # Don't create joined subsegments that are identical to existing ones
+            if length == len(sub_segs_data):
+                continue  # This would be the same as the main segment
+            
+            # Get the subsegments to join
+            subsegments_to_join = sub_segs_data[start_idx:start_idx + length]
+            
+            # Create the joined subsegment
+            first_subseg = subsegments_to_join[0]
+            last_subseg = subsegments_to_join[-1]
+            
+            # Combine text
+            combined_text = " ".join(subseg['text'].strip() for subseg in subsegments_to_join)
+            
+            # Calculate minimum confidence
+            min_conf = min(subseg['min_conf'] for subseg in subsegments_to_join)
+            
+            joined_subsegment = {
+                'speaker': first_subseg['speaker'],
+                'text': combined_text,
+                'start_ms': first_subseg['start_ms'],
+                'end_ms': last_subseg['end_ms'],
+                'min_conf': min_conf,
+                'is_joined': True,  # Mark as joined for identification
+                'joined_indices': list(range(start_idx, start_idx + length))  # Track which original subsegments were joined
+            }
+            
+            joined_subsegments.append(joined_subsegment)
+    
+    return joined_subsegments
+
+def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE, silence_pad_ms: int = 50, build_subsegments: bool = True, join_subsegments: bool = False) -> None:
     """
     Generate audio segments (wav and txt files) from a segments JSON file.
     
@@ -970,6 +1019,8 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
     :param outdir: Output directory for segments.
     :param export_rate: Export sample rate for WAV files.
     :param silence_pad_ms: Global silence padding to add to all segments in milliseconds.
+    :param build_subsegments: Whether to generate subsegments. Defaults to True.
+    :param join_subsegments: Whether to create additional joined subsegments. Defaults to False.
     """
     # Load segments from JSON
     
@@ -1013,9 +1064,20 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
         ffmpeg_extract(audio_path, main_seg.start_ms, main_seg.end_ms, wav_path, silence_pad_ms, silence_pad_ms)
         txt_path.write_text(main_seg.text + "\n", encoding="utf-8")
 
-        # Write subsegments as clipxx_yy, but only if more than 1 subsegment and subsegment != main segment
-        if len(sub_segs_data) > 1:
-            for sub_idx, subseg_data in enumerate(sub_segs_data, 1):
+        # Write subsegments as clipxx_yy, but only if build_subsegments is True and more than 1 subsegment and subsegment != main segment
+        if build_subsegments and len(sub_segs_data) > 1:
+            all_subsegments = sub_segs_data.copy()
+            
+            # Add joined subsegments if requested
+            joined_subsegments = []
+            if join_subsegments:
+                joined_subsegments = create_joined_subsegments(sub_segs_data)
+                all_subsegments.extend(joined_subsegments)
+            
+            regular_idx = 1
+            joined_idx = 1
+            
+            for subseg_data in all_subsegments:
                 # Create Segment object from data
                 subseg = Segment(
                     speaker=subseg_data['speaker'],
@@ -1028,8 +1090,20 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
                 # skip subsegment if it is identical to main segment
                 if (subseg.start_ms == main_seg.start_ms and subseg.end_ms == main_seg.end_ms):
                     continue
+                
                 sub_prefix = confidence_prefix(subseg.min_conf)
-                sub_base = f"clip{seg_idx:02d}_{sub_idx:02d}{sub_prefix}"
+                
+                # Use different naming for joined subsegments
+                if subseg_data.get('is_joined', False):
+                    # For joined subsegments, use a different naming pattern
+                    joined_indices = subseg_data.get('joined_indices', [])
+                    indices_str = "_".join(str(i+1) for i in joined_indices)  # Convert to 1-based
+                    sub_base = f"clip{seg_idx:02d}_j{indices_str}{sub_prefix}"
+                    joined_idx += 1
+                else:
+                    sub_base = f"clip{seg_idx:02d}_{regular_idx:02d}{sub_prefix}"
+                    regular_idx += 1
+                
                 sub_wav_path = spk_dir / f"{sub_base}.wav"
                 sub_txt_path = spk_dir / f"{sub_base}.txt"
                 ffmpeg_extract(audio_path, subseg.start_ms, subseg.end_ms, sub_wav_path, silence_pad_ms, silence_pad_ms)
@@ -1258,6 +1332,9 @@ def main():
     generate_parser.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory (default: out/)")
     generate_parser.add_argument("--rate", type=int, default=EXPORT_RATE, help="Export WAV sample rate or 0 to keep original (default: 16000)")
     generate_parser.add_argument("--silence-pad", type=int, default=50, help="Silence padding in milliseconds (default: 50)")
+    generate_parser.add_argument("--build-subsegments", action="store_true", default=True, help="Build subsegments (default: True)")
+    generate_parser.add_argument("--no-build-subsegments", dest="build_subsegments", action="store_false", help="Disable building subsegments")
+    generate_parser.add_argument("--join-subsegments", action="store_true", default=False, help="Create additional joined subsegments (default: False)")
     
     # Legacy mode (original behavior)
     ap.add_argument("json_path", type=Path, nargs='?', help="Path to JSON file with tokens (legacy mode)")
@@ -1269,6 +1346,9 @@ def main():
     ap.add_argument("--max-seg", type=float, default=MAX_SEG_SEC, help="Maximum segment length in seconds (default: 25.0)")
     ap.add_argument("--rate", type=int, default=EXPORT_RATE, help="Export WAV sample rate or 0 to keep original (default: 16000)")
     ap.add_argument("--silence-pad", type=int, default=50, help="Silence padding in milliseconds (default: 50)")
+    ap.add_argument("--build-subsegments", action="store_true", default=True, help="Build subsegments (default: True)")
+    ap.add_argument("--no-build-subsegments", dest="build_subsegments", action="store_false", help="Disable building subsegments")
+    ap.add_argument("--join-subsegments", action="store_true", default=False, help="Create additional joined subsegments (default: False)")
     
     args = ap.parse_args()
 
@@ -1299,7 +1379,9 @@ def main():
             audio_path=args.audio_path,
             outdir=args.outdir,
             export_rate=args.rate if args.rate and args.rate > 0 else None,
-            silence_pad_ms=args.silence_pad
+            silence_pad_ms=args.silence_pad,
+            build_subsegments=args.build_subsegments,
+            join_subsegments=args.join_subsegments
         )
     else:
         # Legacy mode - original behavior
@@ -1331,7 +1413,9 @@ def main():
             audio_path=args.audio_path,
             outdir=args.outdir,
             export_rate=args.rate if args.rate and args.rate > 0 else None,
-            silence_pad_ms=args.silence_pad
+            silence_pad_ms=args.silence_pad,
+            build_subsegments=args.build_subsegments,
+            join_subsegments=args.join_subsegments
         )
         
         # Clean up temp file

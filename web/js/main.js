@@ -225,6 +225,8 @@ function showAddProjectModal() {
     document.getElementById('modalMaxSpeakers').value = '0';
     document.getElementById('modalSilencePad').value = '50';
     document.getElementById('modalLanguage').value = 'sl';
+    document.getElementById('modalBuildSubsegments').checked = true;
+    document.getElementById('modalJoinSubsegments').checked = false;
     document.getElementById('addProjectModal').style.display = 'block';
 }
 
@@ -247,6 +249,8 @@ async function showEditProjectModal() {
             document.getElementById('editMaxSpeakers').value = settings.maxSpeakers || 0;
             document.getElementById('editSilencePad').value = settings.silencePad || 50;
             document.getElementById('editLanguage').value = settings.language || 'sl';
+            document.getElementById('editBuildSubsegments').checked = settings.buildSubsegments !== undefined ? settings.buildSubsegments : true;
+            document.getElementById('editJoinSubsegments').checked = settings.joinSubsegments !== undefined ? settings.joinSubsegments : false;
         } else {
             // Use defaults if settings not found
             document.getElementById('editSilenceThreshold').value = '-40';
@@ -254,6 +258,8 @@ async function showEditProjectModal() {
             document.getElementById('editMaxSpeakers').value = '0';
             document.getElementById('editSilencePad').value = '50';
             document.getElementById('editLanguage').value = 'sl';
+            document.getElementById('editBuildSubsegments').checked = true;
+            document.getElementById('editJoinSubsegments').checked = false;
         }
     } catch (error) {
         // Use defaults if error loading settings
@@ -262,6 +268,8 @@ async function showEditProjectModal() {
         document.getElementById('editMaxSpeakers').value = '0';
         document.getElementById('editSilencePad').value = '50';
         document.getElementById('editLanguage').value = 'sl';
+        document.getElementById('editBuildSubsegments').checked = true;
+        document.getElementById('editJoinSubsegments').checked = false;
         podcastManager.showMessage('Could not load project settings, using defaults', true);
     }
     
@@ -291,6 +299,8 @@ async function createProjectWithSettings() {
     const maxSpeakers = document.getElementById('modalMaxSpeakers').value;
     const silencePad = document.getElementById('modalSilencePad').value;
     const language = document.getElementById('modalLanguage').value;
+    const buildSubsegments = document.getElementById('modalBuildSubsegments').checked;
+    const joinSubsegments = document.getElementById('modalJoinSubsegments').checked;
     
     if (!name) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -310,7 +320,9 @@ async function createProjectWithSettings() {
                     minSilenceLength: parseInt(minSilenceLength),
                     maxSpeakers: parseInt(maxSpeakers),
                     silencePad: parseInt(silencePad),
-                    language: language
+                    language: language,
+                    buildSubsegments: buildSubsegments,
+                    joinSubsegments: joinSubsegments
                 }
             })
         });
@@ -340,6 +352,8 @@ async function updateProjectWithSettings() {
     const maxSpeakers = document.getElementById('editMaxSpeakers').value;
     const silencePad = document.getElementById('editSilencePad').value;
     const language = document.getElementById('editLanguage').value;
+    const buildSubsegments = document.getElementById('editBuildSubsegments').checked;
+    const joinSubsegments = document.getElementById('editJoinSubsegments').checked;
     
     if (!newName) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -359,7 +373,9 @@ async function updateProjectWithSettings() {
                     minSilenceLength: parseInt(minSilenceLength),
                     maxSpeakers: parseInt(maxSpeakers),
                     silencePad: parseInt(silencePad),
-                    language: language
+                    language: language,
+                    buildSubsegments: buildSubsegments,
+                    joinSubsegments: joinSubsegments
                 }
             })
         });

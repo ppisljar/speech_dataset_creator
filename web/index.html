@@ -97,6 +97,20 @@
                     <option value="sr">Serbian (sr)</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="modalBuildSubsegments" checked>
+                    Build Subsegments
+                </label>
+                <small>Generate subsegments from main segments based on pauses and punctuation</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="modalJoinSubsegments">
+                    Join Subsegments
+                </label>
+                <small>Create additional subsegments by joining consecutive subsegments (requires Build Subsegments)</small>
+            </div>
             <div class="button-group">
                 <button onclick="closeModal('addProjectModal')">Cancel</button>
                 <button onclick="createProjectWithSettings()">Create Project</button>
@@ -148,6 +162,20 @@
                     <option value="hr">Croatian (hr)</option>
                     <option value="sr">Serbian (sr)</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="editBuildSubsegments" checked>
+                    Build Subsegments
+                </label>
+                <small>Generate subsegments from main segments based on pauses and punctuation</small>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="editJoinSubsegments">
+                    Join Subsegments
+                </label>
+                <small>Create additional subsegments by joining consecutive subsegments (requires Build Subsegments)</small>
             </div>
             <div class="button-group">
                 <button onclick="closeModal('editProjectModal')">Cancel</button>
