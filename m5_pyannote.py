@@ -113,7 +113,6 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         with torch.no_grad():
             try:
                 embedding = embedder(segment_waveform)
-                print (f"Extracted embedding for segment {turn.start}-{turn.end} with shape {embedding}")
                 
                 # Handle different types of embedding output
                 if isinstance(embedding, dict):
