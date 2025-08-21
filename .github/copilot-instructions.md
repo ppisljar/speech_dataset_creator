@@ -177,6 +177,21 @@ The system processes audio through a 10-module pipeline:
 2. **Access web interface:** http://localhost:5000
 3. **Test complete workflow:** Upload file and process through pipeline
 
+#### Vast.ai Cloud Deployment Validation
+For vast.ai deployments (cloud GPU instances):
+1. **Use base image:** `pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime`
+2. **Startup script:**
+   ```bash
+   cd /workspace
+   git clone https://github.com/yourusername/speech_dataset_creator.git .
+   pip install -r requirements.txt
+   cp .env.example .env
+   # Set HF_TOKEN via environment injection
+   python _server.py
+   ```
+3. **Access:** Connect to the vast.ai instance's exposed port 5000
+4. **GPU verification:** Check CUDA availability in container logs
+
 ### Expected Timing and Timeout Values
 - **Initial pip install:** 5-10 minutes - **TIMEOUT: 15+ minutes**
 - **Docker build:** 15-30 minutes - **TIMEOUT: 45+ minutes**
@@ -198,6 +213,35 @@ The system processes audio through a 10-module pipeline:
 ### Adding New Speaker Diarization Backends
 - **Current backends:** pyannote (m5_pyannote.py), wespeaker (m5_wespeaker.py), 3dspeaker (m5_3dspeaker.py)
 - **Integration:** Follow existing module pattern for consistent API
+
+### Speaker Diarization Backend Selection
+The system supports three different speaker diarization backends:
+
+1. **pyannote.audio (default)** - `m5_pyannote.py`
+   - Most accurate for general use
+   - Requires HF_TOKEN for model access
+   - Best for English and common languages
+   - Memory usage: Moderate
+
+2. **WeSpeaker** - `m5_wespeaker.py`
+   - Good for multilingual content
+   - Faster processing than pyannote
+   - Memory usage: Lower
+   - Installation: `pip install git+https://github.com/wenet-e2e/wespeaker.git`
+
+3. **3D-Speaker** - `m5_3dspeaker.py`
+   - Optimized for Chinese and Asian languages
+   - Requires ModelScope framework
+   - Memory usage: Higher
+   - Installation: `pip install modelscope speakerlab`
+
+**Usage:** Replace the import in server modules or run individual scripts:
+```bash
+# Use different backends
+python m5_pyannote.py <audio_file>    # Default pyannote
+python m5_wespeaker.py <audio_file>   # WeSpeaker backend  
+python m5_3dspeaker.py <audio_file>   # 3D-Speaker backend
+```
 
 ### Working with Project Settings
 - **Default settings:** Defined in web interface and .env.example
@@ -232,10 +276,43 @@ python -c "import soundfile; print('soundfile OK')"
 python -c "import flask; print('flask OK')"
 ```
 
+### Environment Variables Reference
+Critical environment variables from .env file:
+```bash
+# Required for model downloads
+HF_TOKEN=your_huggingface_token_here
+
+# Flask server configuration
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000
+FLASK_DEBUG=false
+
+# Processing directories
+PROJECTS_DIR=/workspace/projects
+OUTPUT_DIR=/workspace/output
+RAW_DIR=/workspace/raw
+CHECKPOINTS_DIR=/workspace/checkpoints
+
+# GPU/CUDA settings
+CUDA_VISIBLE_DEVICES=0
+TORCH_DEVICE=cuda
+
+# Model cache locations
+TORCH_HOME=./torch_cache
+HF_HOME=./hf_cache
+TRANSFORMERS_CACHE=./transformers_cache
+```
+
 ### Docker Troubleshooting
 - **Build failures:** Check internet connectivity for package downloads
 - **Permission issues:** Ensure Docker has access to mounted directories
 - **GPU not detected:** Verify nvidia-docker runtime is installed
+- **Network timeouts:** Docker builds may fail due to network issues (as seen in testing)
+
+### Container Registry and Deployment
+- **Docker Hub:** Consider pushing built images to reduce build times
+- **Vast.ai deployment:** Use pre-built PyTorch base images for faster startup
+- **Volume mounts:** Ensure proper permissions for data directories
 
 ## Performance Tips
 - **Use GPU acceleration** when available for faster processing
@@ -243,8 +320,96 @@ python -c "import flask; print('flask OK')"
 - **Monitor disk space** as temporary files can be large
 - **Use Docker for consistent environments** across different systems
 
+## Common Output Patterns and File Locations
+
+### Project Directory Structure
+When processing audio files, the system creates this structure under `projects/<project_name>/`:
+```
+projects/<project_name>/
+├── settings.json           # Project configuration
+├── raw/                   # Original uploaded audio files
+├── clean/                 # Cleaned/enhanced audio files
+├── splits/                # Split audio segments
+├── transcriptions/        # Speech-to-text output
+├── speakers/              # Speaker diarization results
+│   ├── speaker_0/         # Individual speaker segments
+│   ├── speaker_1/
+│   └── ...
+├── segments/              # Final processed segments
+├── validation/            # Quality validation reports
+├── metadata/              # Dataset metadata files
+└── archive/               # Final packaged dataset
+```
+
+### Expected File Formats
+- **Audio files:** .wav (preferred), .mp3 (converted to .wav)
+- **Transcriptions:** .txt, .json with timestamps
+- **Speaker data:** .json with speaker IDs and timing
+- **Metadata:** .json with dataset statistics and quality metrics
+- **Archives:** .zip or .tar.gz for final dataset
+
+### Processing Status Indicators
+- **Web interface:** Real-time progress bars and status messages
+- **CLI output:** Module-by-module progress with timing information
+- **Log files:** Stored in project directories for debugging
+
+## Validation Commands Reference
+
+### Quick Health Checks
+```bash
+# Verify all core dependencies
+python -c "import flask, soundfile, dotenv; print('Core imports OK')"
+
+# Test FFmpeg installation
+ffmpeg -version | head -1
+
+# Check virtual environment
+which python && python --version
+
+# Verify HF_TOKEN is set
+python -c "import os; print('HF_TOKEN:', 'SET' if os.getenv('HF_TOKEN') else 'NOT SET')"
+```
+
+### Pre-commit Validation
+Always run these checks before committing changes:
+```bash
+# Activate environment
+source venv/bin/activate
+
+# Test basic imports without audio processing
+python -c "from server.files import create_files_routes; print('Server modules OK')"
+
+# Test web interface serves
+curl -f http://localhost:5000/ || echo "Server not running - start with 'python _server.py'"
+
+# Verify Docker config
+docker compose config > /dev/null && echo "Docker config valid"
+```
+
+## Module-Specific Timing and Memory Requirements
+
+### Processing Performance by Module
+- **m1 (clean):** 1-5 minutes per hour of audio
+- **m2 (silences):** 30 seconds to 2 minutes per hour
+- **m3 (split):** 1-3 minutes per hour
+- **m4 (transcribe):** 5-30 minutes per hour (depends on model)
+- **m5 (diarization):** 10-60 minutes per hour (GPU recommended)
+- **m6 (segment):** 2-10 minutes per hour
+- **m7 (validate):** 1-5 minutes per hour
+- **m8 (metadata):** 30 seconds to 2 minutes
+- **m9 (align):** 5-20 minutes per hour
+- **m10 (archive):** 1-5 minutes depending on size
+
+### Memory Requirements
+- **Minimum:** 8GB RAM for basic processing
+- **Recommended:** 16GB+ RAM for large files
+- **GPU memory:** 4GB+ VRAM for optimal performance
+- **Disk space:** 10-50GB free per hour of processed audio
+
 ## Notes for AI-Generated Code
 - **This codebase is fully AI-generated** as noted in README.md
 - **Consistent patterns:** All modules follow similar structure and error handling
 - **Configuration-driven:** Most behavior controlled via environment variables and project settings
 - **Modular design:** Each processing step is independent and can be run individually
+- **Error handling:** Most modules gracefully handle missing dependencies or failed operations
+- **Logging:** Comprehensive logging throughout the pipeline for debugging
