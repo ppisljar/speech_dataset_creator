@@ -130,9 +130,9 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                             embedding = next(iter(embedding.values()))
                 
                 if isinstance(embedding, torch.Tensor):
-                    embedding = embedding.numpy()
+                    embedding = embedding.cpu().numpy()
                 elif hasattr(embedding, 'numpy'):
-                    embedding = embedding.numpy()
+                    embedding = embedding.cpu().numpy()
                 else:
                     # If it's already a numpy array or list
                     embedding = np.array(embedding)
