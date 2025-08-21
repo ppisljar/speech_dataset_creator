@@ -1,0 +1,126 @@
+{
+  "metadata": {
+    "extraction_info": {
+      "start_segment_id": 5,
+      "end_segment_id": 8,
+      "time_range_ms": [
+        25000,
+        40000
+      ],
+      "extracted_at": "2025-08-21T13:26:01.132810"
+    },
+    "source_info": {
+      "segments_file": "/workspace/projects/my_podcast/splits/split_0/episode_001_segments.json",
+      "extracted_segments_count": 4,
+      "audio_path": "/workspace/raw/episode_001.wav",
+      "files_included": {
+        "segments": true,
+        "raw_segments": true,
+        "silences": true,
+        "transcriptions": true
+      }
+    }
+  },
+  "segments": [
+    {
+      "seg_idx": 5,
+      "start_ms": 25000,
+      "end_ms": 28500,
+      "speaker": "SPEAKER_00",
+      "text": "Welcome back to our podcast. Today we will discuss artificial intelligence and its impact on society.",
+      "status": "good",
+      "audio_file": "segment_005.wav",
+      "subs": [
+        {
+          "start_ms": 25000,
+          "end_ms": 26800,
+          "text": "Welcome back to our podcast.",
+          "status": "good"
+        },
+        {
+          "start_ms": 26800,
+          "end_ms": 28500,
+          "text": "Today we will discuss artificial intelligence and its impact on society.",
+          "status": "good"
+        }
+      ]
+    },
+    {
+      "seg_idx": 6,
+      "start_ms": 30000,
+      "end_ms": 33200,
+      "speaker": "SPEAKER_01",
+      "text": "That sounds fascinating. I have been following recent developments in machine learning.",
+      "status": "good",
+      "audio_file": "segment_006.wav"
+    },
+    {
+      "seg_idx": 7,
+      "start_ms": 35000,
+      "end_ms": 37800,
+      "speaker": "SPEAKER_00",
+      "text": "Yes, the progress has been remarkable, especially in natural language processing.",
+      "status": "good",
+      "audio_file": "segment_007.wav"
+    },
+    {
+      "seg_idx": 8,
+      "start_ms": 38000,
+      "end_ms": 40000,
+      "speaker": "SPEAKER_01",
+      "text": "Let us explore this topic further.",
+      "status": "good",
+      "audio_file": "segment_008.wav"
+    }
+  ],
+  "raw_segments": [
+    {
+      "seg_idx": 5,
+      "start_ms": 25000,
+      "end_ms": 29000,
+      "speaker": "SPEAKER_00",
+      "text": "Welcome back to our podcast. Today we will discuss artificial intelligence and its impact on society."
+    },
+    {
+      "seg_idx": 6,
+      "start_ms": 29500,
+      "end_ms": 33500,
+      "speaker": "SPEAKER_01",
+      "text": "That sounds fascinating. I have been following recent developments in machine learning."
+    }
+  ],
+  "silences": [
+    {
+      "start_ms": 28500,
+      "end_ms": 30000,
+      "duration_ms": 1500,
+      "type": "pause"
+    },
+    {
+      "start_ms": 33200,
+      "end_ms": 35000,
+      "duration_ms": 1800,
+      "type": "pause"
+    }
+  ],
+  "transcription_tokens": [
+    {
+      "word": "Welcome",
+      "start_ms": 25000,
+      "end_ms": 25400,
+      "confidence": 0.95
+    },
+    {
+      "word": "back",
+      "start_ms": 25400,
+      "end_ms": 25700,
+      "confidence": 0.98
+    },
+    {
+      "word": "to",
+      "start_ms": 25700,
+      "end_ms": 25850,
+      "confidence": 0.99
+    }
+  ]
+}
