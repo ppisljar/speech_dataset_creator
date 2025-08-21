@@ -27,6 +27,16 @@ class DataViewer {
         this.audioStartOffset = 0;
         this.animationId = null;
 
+        // Drag and drop state for segment boundaries
+        this.dragState = {
+            isDragging: false,
+            dragType: null, // 'segment-start', 'segment-end', 'subsegment-start', 'subsegment-end'
+            segmentIndex: -1,
+            subsegmentIndex: -1,
+            startX: 0,
+            originalTime: 0
+        };
+
         // Initialize controllers
         this.audioController = new AudioController(this);
         this.segmentsManager = new SegmentsManager(this);
@@ -310,8 +320,13 @@ class DataViewer {
         // Initialize timeline scrollbar
         this.initializeTimelineScrollbar();
         
-        // Add canvas click handler for seeking
+        // Add canvas click handler for seeking (only when not dragging)
         canvas.addEventListener('click', (e) => {
+            // Don't seek if we just finished dragging
+            if (this.dragState.isDragging) {
+                return;
+            }
+
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
@@ -321,6 +336,46 @@ class DataViewer {
             if (newTime >= 0 && newTime <= this.waveformData.duration) {
                 this.seekToTime(newTime);
                 podcastManager.showMessage(`Seeked to time: ${this.formatTime(newTime)}`);
+            }
+        });
+
+        // Add mousedown handler for dragging boundaries
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Test if mouse is near a boundary
+            const hitTest = this.testBoundaryHit(x, y);
+            
+            if (hitTest) {
+                // Start dragging
+                this.dragState.isDragging = true;
+                this.dragState.dragType = hitTest.type;
+                this.dragState.segmentIndex = hitTest.segmentIndex;
+                this.dragState.subsegmentIndex = hitTest.subsegmentIndex;
+                this.dragState.startX = x;
+                this.dragState.originalTime = hitTest.originalTime;
+                
+                // Change cursor and prevent default behavior
+                canvas.style.cursor = 'ew-resize';
+                e.preventDefault();
+                
+                podcastManager.showMessage(`Dragging ${hitTest.type}...`);
+            }
+        });
+
+        // Add mouseup handler to end dragging
+        canvas.addEventListener('mouseup', (e) => {
+            if (this.dragState.isDragging) {
+                this.finalizeDrag();
+            }
+        });
+
+        // Global mouseup to handle dragging outside canvas
+        document.addEventListener('mouseup', (e) => {
+            if (this.dragState.isDragging) {
+                this.finalizeDrag();
             }
         });
         
@@ -350,32 +405,197 @@ class DataViewer {
             }
         }, { passive: false });
         
-        // Add mouse move handler for hover indicator
+        // Add mouse move handler for hover indicator and dragging
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
             
-            if (x >= 0 && x <= this.waveformData.canvasWidth) {
-                this.waveformData.mouseX = x;
-                this.drawWaveform(); // Redraw to show hover line
-                this.updateTimeDisplays(); // Update time displays
+            if (this.dragState.isDragging) {
+                // Handle dragging
+                this.handleDrag(x);
             } else {
-                this.waveformData.mouseX = -1;
-                this.drawWaveform();
-                this.updateTimeDisplays(); // Update time displays
+                // Handle normal hover behavior
+                if (x >= 0 && x <= this.waveformData.canvasWidth) {
+                    this.waveformData.mouseX = x;
+                    
+                    // Test if mouse is near a boundary for cursor feedback
+                    const hitTest = this.testBoundaryHit(x, y);
+                    if (hitTest) {
+                        canvas.style.cursor = 'ew-resize';
+                    } else {
+                        canvas.style.cursor = 'crosshair';
+                    }
+                    
+                    this.drawWaveform(); // Redraw to show hover line
+                    this.updateTimeDisplays(); // Update time displays
+                } else {
+                    this.waveformData.mouseX = -1;
+                    canvas.style.cursor = 'crosshair';
+                    this.drawWaveform();
+                    this.updateTimeDisplays(); // Update time displays
+                }
             }
         });
         
         // Add mouse leave handler to hide hover indicator
         canvas.addEventListener('mouseleave', () => {
-            this.waveformData.mouseX = -1;
-            this.drawWaveform(); // Redraw to hide hover line
-            this.updateTimeDisplays(); // Update time displays
+            if (!this.dragState.isDragging) {
+                this.waveformData.mouseX = -1;
+                canvas.style.cursor = 'crosshair';
+                this.drawWaveform(); // Redraw to hide hover line
+                this.updateTimeDisplays(); // Update time displays
+            }
         });
         
         this.updateTimeDisplay();
         this.setZoom(this.waveformData.zoom);
         this.updateTimeDisplays(); // Initialize the new time displays
+    }
+
+    // Handle dragging of segment/subsegment boundaries
+    handleDrag(mouseX) {
+        if (!this.dragState.isDragging) return;
+
+        const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+        const timeOffset = (mouseX / this.waveformData.canvasWidth) * viewDuration;
+        const newTime = this.waveformData.viewStart + timeOffset;
+
+        // Apply constraints and update the boundary
+        const constrainedTime = this.constrainBoundaryTime(newTime);
+        this.updateBoundaryTime(constrainedTime);
+        
+        // Redraw to show the dragged boundary
+        this.drawWaveform();
+    }
+
+    // Constrain boundary time to prevent overlaps and invalid ranges
+    constrainBoundaryTime(newTime) {
+        const { dragType, segmentIndex, subsegmentIndex } = this.dragState;
+        
+        // Basic bounds checking
+        const minTime = 0;
+        const maxTime = this.waveformData.duration;
+        newTime = Math.max(minTime, Math.min(maxTime, newTime));
+
+        if (dragType === 'segment-start' || dragType === 'segment-end') {
+            const segment = this.waveformData.segments[segmentIndex];
+            
+            if (dragType === 'segment-start') {
+                // Segment start cannot be after segment end
+                const maxAllowed = segment.end - 0.1; // minimum 100ms segment
+                newTime = Math.min(newTime, maxAllowed);
+                
+                // Check against previous segment
+                if (segmentIndex > 0) {
+                    const prevSegment = this.waveformData.segments[segmentIndex - 1];
+                    newTime = Math.max(newTime, prevSegment.end);
+                }
+            } else { // segment-end
+                // Segment end cannot be before segment start
+                const minAllowed = segment.start + 0.1; // minimum 100ms segment
+                newTime = Math.max(newTime, minAllowed);
+                
+                // Check against next segment
+                if (segmentIndex < this.waveformData.segments.length - 1) {
+                    const nextSegment = this.waveformData.segments[segmentIndex + 1];
+                    newTime = Math.min(newTime, nextSegment.start);
+                }
+            }
+        } else if (dragType === 'subsegment-start' || dragType === 'subsegment-end') {
+            const segment = this.waveformData.segments[segmentIndex];
+            const subsegment = segment.subs[subsegmentIndex];
+            
+            if (dragType === 'subsegment-start') {
+                // Subsegment start cannot be after subsegment end
+                const maxAllowed = subsegment.end - 0.05; // minimum 50ms subsegment
+                newTime = Math.min(newTime, maxAllowed);
+                
+                // Check against parent segment bounds
+                newTime = Math.max(newTime, segment.start);
+                newTime = Math.min(newTime, segment.end);
+                
+                // Check against previous subsegment
+                if (subsegmentIndex > 0) {
+                    const prevSubsegment = segment.subs[subsegmentIndex - 1];
+                    newTime = Math.max(newTime, prevSubsegment.end);
+                }
+            } else { // subsegment-end
+                // Subsegment end cannot be before subsegment start
+                const minAllowed = subsegment.start + 0.05; // minimum 50ms subsegment
+                newTime = Math.max(newTime, minAllowed);
+                
+                // Check against parent segment bounds
+                newTime = Math.max(newTime, segment.start);
+                newTime = Math.min(newTime, segment.end);
+                
+                // Check against next subsegment
+                if (subsegmentIndex < segment.subs.length - 1) {
+                    const nextSubsegment = segment.subs[subsegmentIndex + 1];
+                    newTime = Math.min(newTime, nextSubsegment.start);
+                }
+            }
+        }
+
+        return newTime;
+    }
+
+    // Update the boundary time in the data structure
+    updateBoundaryTime(newTime) {
+        const { dragType, segmentIndex, subsegmentIndex } = this.dragState;
+        
+        if (dragType === 'segment-start') {
+            this.waveformData.segments[segmentIndex].start = newTime;
+        } else if (dragType === 'segment-end') {
+            this.waveformData.segments[segmentIndex].end = newTime;
+        } else if (dragType === 'subsegment-start') {
+            this.waveformData.segments[segmentIndex].subs[subsegmentIndex].start = newTime;
+        } else if (dragType === 'subsegment-end') {
+            this.waveformData.segments[segmentIndex].subs[subsegmentIndex].end = newTime;
+        }
+    }
+
+    // Finalize the drag operation
+    finalizeDrag() {
+        if (!this.dragState.isDragging) return;
+
+        const { dragType, segmentIndex, subsegmentIndex, originalTime } = this.dragState;
+        
+        // Get the final time
+        let finalTime;
+        if (dragType === 'segment-start') {
+            finalTime = this.waveformData.segments[segmentIndex].start;
+        } else if (dragType === 'segment-end') {
+            finalTime = this.waveformData.segments[segmentIndex].end;
+        } else if (dragType === 'subsegment-start') {
+            finalTime = this.waveformData.segments[segmentIndex].subs[subsegmentIndex].start;
+        } else if (dragType === 'subsegment-end') {
+            finalTime = this.waveformData.segments[segmentIndex].subs[subsegmentIndex].end;
+        }
+
+        // Update the UI table if it's a subsegment (segments table will refresh on redraw)
+        if (dragType.includes('subsegment')) {
+            const timeType = dragType.includes('start') ? 'start' : 'end';
+            const valueMs = Math.round(finalTime * 1000);
+            this.updateSubsegmentTime(segmentIndex, subsegmentIndex, timeType, valueMs);
+        }
+
+        // Reset drag state
+        this.dragState.isDragging = false;
+        this.dragState.dragType = null;
+        this.dragState.segmentIndex = -1;
+        this.dragState.subsegmentIndex = -1;
+
+        // Reset cursor
+        const canvas = document.getElementById('waveformCanvas');
+        canvas.style.cursor = 'crosshair';
+
+        // Final redraw and update table
+        this.drawWaveform();
+        this.displaySegmentsTable();
+        
+        const timeDiff = Math.round((finalTime - originalTime) * 1000);
+        podcastManager.showMessage(`${dragType} updated by ${timeDiff}ms`);
     }
 
     initializeTimelineScrollbar() {
@@ -879,6 +1099,97 @@ class DataViewer {
         // Update difference in milliseconds
         const timeDifferenceMs = mousePositionMs - audioPositionMs;
         document.getElementById('timeDifferenceMs').textContent = timeDifferenceMs;
+    }
+
+    // Test if mouse position is near a segment or subsegment boundary
+    testBoundaryHit(mouseX, mouseY) {
+        if (!this.waveformData.audioData) return null;
+
+        const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+        const tolerance = 5; // pixels tolerance for grabbing boundaries
+        const waveformHeight = 400;
+        
+        // Helper function to convert time to x coordinate
+        const timeToX = (time) => {
+            return ((time - this.waveformData.viewStart) / viewDuration) * this.waveformData.canvasWidth;
+        };
+
+        // Define track positions matching drawAnnotations
+        const tracks = {
+            segments: waveformHeight + 80,
+            subsegments: waveformHeight + 120
+        };
+
+        // Test segments (red track)
+        const segmentTrackTop = tracks.segments;
+        const segmentTrackBottom = tracks.segments + 20;
+        
+        if (mouseY >= segmentTrackTop && mouseY <= segmentTrackBottom) {
+            for (let i = 0; i < this.waveformData.segments.length; i++) {
+                const segment = this.waveformData.segments[i];
+                const startX = timeToX(segment.start);
+                const endX = timeToX(segment.end);
+                
+                // Test start boundary
+                if (Math.abs(mouseX - startX) <= tolerance) {
+                    return {
+                        type: 'segment-start',
+                        segmentIndex: i,
+                        subsegmentIndex: -1,
+                        originalTime: segment.start
+                    };
+                }
+                
+                // Test end boundary  
+                if (Math.abs(mouseX - endX) <= tolerance) {
+                    return {
+                        type: 'segment-end',
+                        segmentIndex: i,
+                        subsegmentIndex: -1,
+                        originalTime: segment.end
+                    };
+                }
+            }
+        }
+
+        // Test subsegments (purple track)
+        const subsegmentTrackTop = tracks.subsegments;
+        const subsegmentTrackBottom = tracks.subsegments + 20;
+        
+        if (mouseY >= subsegmentTrackTop && mouseY <= subsegmentTrackBottom) {
+            for (let segIdx = 0; segIdx < this.waveformData.segments.length; segIdx++) {
+                const segment = this.waveformData.segments[segIdx];
+                if (segment.subs && Array.isArray(segment.subs)) {
+                    for (let subIdx = 0; subIdx < segment.subs.length; subIdx++) {
+                        const subsegment = segment.subs[subIdx];
+                        const startX = timeToX(subsegment.start);
+                        const endX = timeToX(subsegment.end);
+                        
+                        // Test start boundary
+                        if (Math.abs(mouseX - startX) <= tolerance) {
+                            return {
+                                type: 'subsegment-start',
+                                segmentIndex: segIdx,
+                                subsegmentIndex: subIdx,
+                                originalTime: subsegment.start
+                            };
+                        }
+                        
+                        // Test end boundary
+                        if (Math.abs(mouseX - endX) <= tolerance) {
+                            return {
+                                type: 'subsegment-end',
+                                segmentIndex: segIdx,
+                                subsegmentIndex: subIdx,
+                                originalTime: subsegment.end
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     formatTime(seconds) {
