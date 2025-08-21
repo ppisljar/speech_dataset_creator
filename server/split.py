@@ -180,9 +180,23 @@ def create_split_routes(projects_dir, processing_status):
             
             if os.path.exists(splits_path):
                 print(f"DEBUG: Directory contents: {os.listdir(splits_path)}")
+                all_audio_files = []
                 for item in os.listdir(splits_path):
                     if item.lower().endswith(('.mp3', '.wav')):
-                        splits.append(item)
+                        all_audio_files.append(item)
+                
+                # Filter logic: if there are multiple wav files and one ends with _cleaned_audio.wav,
+                # exclude the _cleaned_audio.wav file from the dropdown
+                cleaned_audio_files = [f for f in all_audio_files if f.endswith('_cleaned_audio.wav')]
+                other_wav_files = [f for f in all_audio_files if f.endswith('.wav') and not f.endswith('_cleaned_audio.wav')]
+                mp3_files = [f for f in all_audio_files if f.endswith('.mp3')]
+                
+                # If there are other wav files besides _cleaned_audio.wav, exclude _cleaned_audio.wav
+                if other_wav_files or mp3_files:
+                    splits = other_wav_files + mp3_files
+                else:
+                    # If only _cleaned_audio.wav exists, include it
+                    splits = cleaned_audio_files
             else:
                 print(f"DEBUG: Directory does not exist: {splits_path}")
             

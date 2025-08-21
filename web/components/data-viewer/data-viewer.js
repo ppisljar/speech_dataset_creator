@@ -476,7 +476,13 @@ class DataViewer {
 
     setZoom(millisecondsPerPixel) {
         this.waveformData.zoom = millisecondsPerPixel;
-        document.getElementById('currentZoom').textContent = `(${millisecondsPerPixel}ms/px)`;
+        
+        // Update the zoom dropdown to reflect the current zoom level
+        const zoomSelect = document.getElementById('zoomSelect');
+        if (zoomSelect) {
+            zoomSelect.value = millisecondsPerPixel;
+        }
+        
         this.drawWaveform();
         this.updateTimeDisplay();
     }

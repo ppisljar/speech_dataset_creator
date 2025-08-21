@@ -19,14 +19,19 @@
 </div>
 
 <div class="zoom-controls">
-    <span>Zoom: </span>
-    <button onclick="setZoom(1000)">1s/px</button>
-    <button onclick="setZoom(100)">100ms/px</button>
-    <button onclick="setZoom(50)">50ms/px</button>
-    <button onclick="setZoom(10)">10ms/px</button>
-    <button onclick="setZoom(5)">5ms/px</button>
-    <button onclick="setZoom(1)">1ms/px</button>
-    <span id="currentZoom" style="margin-left: 10px;"></span>
+    <label for="zoomSelect">Zoom: </label>
+    <select id="zoomSelect" onchange="setZoom(parseFloat(this.value))">
+        <option value="1000">1s/px (1000ms/px)</option>
+        <option value="500">500ms/px</option>
+        <option value="250">250ms/px</option>
+        <option value="100" selected>100ms/px</option>
+        <option value="50">50ms/px</option>
+        <option value="25">25ms/px</option>
+        <option value="10">10ms/px</option>
+        <option value="5">5ms/px</option>
+        <option value="2">2ms/px</option>
+        <option value="1">1ms/px</option>
+    </select>
 </div>
 
 <!-- Waveform Viewer -->
