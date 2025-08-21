@@ -108,6 +108,20 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         end_sample = int(turn.end * sample_rate)
         segment_waveform = waveform[:, start_sample:end_sample]
         
+        # Check if segment is too short for the embedding model
+        # Minimum duration should be at least 0.1 seconds (1600 samples at 16kHz)
+        min_samples = int(0.1 * sample_rate)  # 0.1 seconds minimum
+        if segment_waveform.shape[1] < min_samples:
+            print(f"Warning: Segment {turn.start}-{turn.end} is too short ({segment_waveform.shape[1]} samples, need >{min_samples}). Using original speaker label.")
+            speaker_name = speaker
+            rows.append({
+                "speaker": speaker_name,
+                "start": round(turn.start, 3),
+                "end": round(turn.end, 3),
+                "duration": round(turn.duration, 3),
+            })
+            continue
+        
         # Extract embedding for this segment
         # Note: embedder expects just the waveform tensor, not a dict
         with torch.no_grad():
