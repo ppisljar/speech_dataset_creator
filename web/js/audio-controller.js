@@ -72,6 +72,7 @@ class AudioController {
             
             this.stopPositionTracking();
             podcastManager.showMessage('Audio paused');
+            this.dataViewer.updateTimeDisplays(); // Update the new time displays
         }
     }
 
@@ -91,6 +92,7 @@ class AudioController {
         
         this.stopPositionTracking();
         this.updateAudioTimeDisplay();
+        this.dataViewer.updateTimeDisplays(); // Update the new time displays
         this.dataViewer.drawWaveform(); // Redraw to remove position line
         podcastManager.showMessage('Audio stopped');
     }
@@ -119,6 +121,7 @@ class AudioController {
         }
         
         this.updateAudioTimeDisplay();
+        this.dataViewer.updateTimeDisplays(); // Update the new time displays
         this.dataViewer.drawWaveform();
         
         // Resume playback if it was playing before seeking
@@ -136,6 +139,7 @@ class AudioController {
         const updatePosition = () => {
             if (this.dataViewer.isPlaying) {
                 this.updateAudioTimeDisplay();
+                this.dataViewer.updateTimeDisplays(); // Update the new time displays
                 this.dataViewer.drawWaveform(); // Redraw to update position line
                 this.dataViewer.animationId = requestAnimationFrame(updatePosition);
             }

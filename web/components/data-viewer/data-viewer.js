@@ -324,9 +324,11 @@ class DataViewer {
             if (x >= 0 && x <= this.waveformData.canvasWidth) {
                 this.waveformData.mouseX = x;
                 this.drawWaveform(); // Redraw to show hover line
+                this.updateTimeDisplays(); // Update time displays
             } else {
                 this.waveformData.mouseX = -1;
                 this.drawWaveform();
+                this.updateTimeDisplays(); // Update time displays
             }
         });
         
@@ -334,10 +336,12 @@ class DataViewer {
         canvas.addEventListener('mouseleave', () => {
             this.waveformData.mouseX = -1;
             this.drawWaveform(); // Redraw to hide hover line
+            this.updateTimeDisplays(); // Update time displays
         });
         
         this.updateTimeDisplay();
         this.setZoom(this.waveformData.zoom);
+        this.updateTimeDisplays(); // Initialize the new time displays
     }
 
     initializeTimelineScrollbar() {
@@ -755,6 +759,30 @@ class DataViewer {
         if (this.updateTimelineThumb) {
             this.updateTimelineThumb();
         }
+        
+        // Update the new time displays
+        this.updateTimeDisplays();
+    }
+
+    updateTimeDisplays() {
+        // Update audio position in milliseconds
+        const currentTime = this.getCurrentPlaybackTime();
+        const audioPositionMs = Math.round(currentTime * 1000);
+        document.getElementById('audioPositionMs').textContent = audioPositionMs;
+        
+        // Update mouse position in milliseconds
+        let mousePositionMs = 0;
+        if (this.waveformData.mouseX >= 0) {
+            const viewDuration = (this.waveformData.canvasWidth * this.waveformData.zoom) / 1000;
+            const timeOffset = (this.waveformData.mouseX / this.waveformData.canvasWidth) * viewDuration;
+            const mouseTime = this.waveformData.viewStart + timeOffset;
+            mousePositionMs = Math.round(mouseTime * 1000);
+        }
+        document.getElementById('mousePositionMs').textContent = mousePositionMs;
+        
+        // Update difference in milliseconds
+        const timeDifferenceMs = mousePositionMs - audioPositionMs;
+        document.getElementById('timeDifferenceMs').textContent = timeDifferenceMs;
     }
 
     formatTime(seconds) {
@@ -1418,12 +1446,14 @@ class DataViewer {
             this.syncWaveformFromTable();
         });
 
-        // Also sync when waveform view changes
-        this.originalDrawWaveform = this.drawWaveform;
-        this.drawWaveform = () => {
-            this.originalDrawWaveform();
-            this.syncTableFromWaveform();
-        };
+        // Also sync when waveform view changes - but only wrap once
+        if (!this.originalDrawWaveform) {
+            this.originalDrawWaveform = this.drawWaveform;
+            this.drawWaveform = () => {
+                this.originalDrawWaveform();
+                this.syncTableFromWaveform();
+            };
+        }
     }
 
     syncWaveformFromTable() {
