@@ -82,6 +82,9 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         # Average across channels (dim=0) to convert stereo to mono
         waveform = torch.mean(waveform, dim=0, keepdim=True)
     
+    # Move waveform to the same device as the embedder
+    waveform = waveform.to(device)
+    
     # Prepare pipeline arguments for min/max speakers
     pipeline_kwargs = {}
     if min_speakers is not None:
