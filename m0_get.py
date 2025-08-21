@@ -218,6 +218,51 @@ async def get_podcasts(base_url, output_dir='./aidea', max_pages=10, use_custom_
                 file_path = os.path.join(output_dir, file_name)
                 download_mp3(mp3_url, file_path, override=override)
 
+# New function to download individual URLs
+async def download_urls(urls, output_dir='./raw', override=False):
+    """Download individual URLs to the specified directory"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    downloaded_files = []
+    failed_files = []
+    
+    for url in urls:
+        url = url.strip()
+        if not url:
+            continue
+            
+        try:
+            print(f"Downloading {url}...")
+            
+            # Get sanitized filename and ensure WAV extension for output
+            original_name = get_filename_from_url(url)
+            if original_name.lower().endswith(('.mp3', '.m4a')):
+                file_name = original_name.rsplit('.', 1)[0] + '.wav'
+            else:
+                file_name = original_name + '.wav' if not original_name.lower().endswith('.wav') else original_name
+            
+            file_path = os.path.join(output_dir, file_name)
+            
+            # Check if file exists and skip if not overriding
+            if not override and os.path.exists(file_path):
+                print(f"Skipping {file_name}, already exists.")
+                downloaded_files.append(file_name)
+                continue
+            
+            download_mp3(url, file_path, override=override)
+            downloaded_files.append(file_name)
+            print(f"Successfully downloaded: {file_name}")
+            
+        except Exception as e:
+            print(f"Failed to download {url}: {str(e)}")
+            failed_files.append({"url": url, "error": str(e)})
+    
+    return {
+        "downloaded": downloaded_files,
+        "failed": failed_files,
+        "total": len(urls)
+    }
+
 # Run the main function
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Download podcasts.")

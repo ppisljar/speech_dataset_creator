@@ -6,12 +6,79 @@ import shutil
 import subprocess
 import threading
 import time
+import asyncio
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from pathlib import Path
 from run import process_file
+from m0_get import download_urls
 
 files_bp = Blueprint('files', __name__)
+
+def download_urls_background(project_name, urls, projects_dir, processing_status):
+    """Background function to download URLs to project raw folder"""
+    process_key = f"{project_name}_url_download"
+    
+    try:
+        processing_status[process_key] = {
+            'status': 'processing',
+            'started_at': datetime.now().isoformat(),
+            'progress': 0,
+            'message': f'Starting download of {len(urls)} URLs...'
+        }
+        
+        # Prepare output directory
+        output_dir = os.path.join(projects_dir, project_name, 'raw')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Run the download function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        processing_status[process_key]['progress'] = 20
+        processing_status[process_key]['message'] = 'Downloading files...'
+        
+        result = loop.run_until_complete(download_urls(urls, output_dir, override=False))
+        loop.close()
+        
+        # Update status based on results
+        downloaded_count = len(result['downloaded'])
+        failed_count = len(result['failed'])
+        total_count = result['total']
+        
+        if failed_count == 0:
+            processing_status[process_key] = {
+                'status': 'completed',
+                'started_at': processing_status[process_key]['started_at'],
+                'completed_at': datetime.now().isoformat(),
+                'progress': 100,
+                'message': f'Successfully downloaded {downloaded_count}/{total_count} files'
+            }
+        elif downloaded_count > 0:
+            processing_status[process_key] = {
+                'status': 'completed_with_errors',
+                'started_at': processing_status[process_key]['started_at'],
+                'completed_at': datetime.now().isoformat(),
+                'progress': 100,
+                'message': f'Downloaded {downloaded_count}/{total_count} files ({failed_count} failed)'
+            }
+        else:
+            processing_status[process_key] = {
+                'status': 'failed',
+                'started_at': processing_status[process_key]['started_at'],
+                'completed_at': datetime.now().isoformat(),
+                'progress': 0,
+                'message': f'All downloads failed'
+            }
+            
+    except Exception as e:
+        processing_status[process_key] = {
+            'status': 'failed',
+            'started_at': processing_status.get(process_key, {}).get('started_at', datetime.now().isoformat()),
+            'completed_at': datetime.now().isoformat(),
+            'progress': 0,
+            'message': f'Error: {str(e)}'
+        }
 
 def process_file_background(project_name, base_filename, file_path, projects_dir, processing_status):
     """Background function to process a file through the pipeline"""
@@ -157,6 +224,44 @@ def create_files_routes(projects_dir, processing_status):
             
             os.remove(file_path)
             return jsonify({'message': f'File {filename} deleted successfully'}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @files_bp.route('/api/projects/<project_name>/download-urls', methods=['POST'])
+    def download_urls_endpoint(project_name):
+        """Download audio files from URLs"""
+        try:
+            data = request.get_json()
+            urls_text = data.get('urls', '')
+            
+            if not urls_text:
+                return jsonify({'error': 'No URLs provided'}), 400
+            
+            # Parse URLs from text (one per line)
+            urls = [url.strip() for url in urls_text.split('\n') if url.strip()]
+            
+            if not urls:
+                return jsonify({'error': 'No valid URLs found'}), 400
+            
+            # Check if project exists
+            project_path = os.path.join(projects_dir, project_name)
+            if not os.path.exists(project_path):
+                return jsonify({'error': 'Project not found'}), 404
+            
+            # Start background download process
+            thread = threading.Thread(
+                target=download_urls_background,
+                args=(project_name, urls, projects_dir, processing_status)
+            )
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({
+                'message': f'Started download of {len(urls)} URLs',
+                'processing_key': f"{project_name}_url_download",
+                'urls_count': len(urls)
+            }), 201
+            
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
