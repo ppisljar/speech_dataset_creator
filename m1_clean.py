@@ -39,6 +39,7 @@ def clean_audio(input_path, output_path):
         audio_data, sample_rate = output_wav
         sf.write(output_path, audio_data, sample_rate, format='WAV')
     else:
+        print("Warning: ClearVoice output is not in expected format. Attempting fallback method.")
         # Fallback: use ClearVoice's write method first, then re-read and convert
         temp_path = str(output_path) + ".temp"
         myClearVoice.write(output_wav, output_path=temp_path)

@@ -42,7 +42,11 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     silence_thresh = settings.get('silenceThreshold', -30)
     min_silence_len = settings.get('minSilenceLength', 100)
     max_speakers = settings.get('maxSpeakers', 0)
+    silence_pad = settings.get('silencePad', 50)
+    transcription_language = settings.get('language', 'sl')
     print(f"Silence detection settings: threshold={silence_thresh}dB, min_length={min_silence_len}ms")
+    print(f"Silence padding: {silence_pad}ms")
+    print(f"Transcription language: {transcription_language}")
     if max_speakers > 0:
         print(f"Speaker diarization settings: max_speakers={max_speakers}")
     else:
@@ -67,7 +71,12 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     else:
         print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
         try:
-            split_audio(clean_file, file_temp_dir)
+            # Extract silence settings from project config
+            silence_thresh = settings.get('silenceThreshold', -35) if settings else -35
+            min_silence_len = settings.get('minSilenceLength', 500) / 1000.0 if settings else 0.5  # Convert ms to seconds
+            print(f"[info] Split settings: silence_db={silence_thresh}dB, min_silence_length={min_silence_len}s")
+            
+            split_audio(clean_file, file_temp_dir, silence_db=silence_thresh, silence_min=min_silence_len)
         except NoAdequateSilenceError as e:
             print(f"Error: {e}")
             print(f"Skipping file {file_name} due to splitting failure.")
@@ -112,7 +121,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             else:
                 # Transcribe the split audio file
                 print(f"Transcribing {split_path}")
-                transcribe_file(split_path, transcription_file)
+                transcribe_file(split_path, transcription_file, language=transcription_language)
 
             if not override and os.path.exists(pyannote_file + '.csv'):
                 print(f"Pyannote file already exists, skipping pyannote processing.")
@@ -158,7 +167,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             else:
                 # Segment the audio based on transcription
                 print(f"Segmenting {split_path}")
-                segment_audio(split_path, transcription_file, segments_file)
+                segment_audio(split_path, transcription_file, segments_file, silence_pad_ms=silence_pad)
 
             if segment:
                 # check if segmenting was already done (files exist inside {split_path}_segments)
@@ -168,7 +177,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                 else:
                     # If segmentation is enabled, process the segments
                     print(f"Segmenting {split_path} with segments file {segments_file}")
-                    generate_segments(segments_file, split_path, segments_output_path)
+                    generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad)
 
 def main():
     """

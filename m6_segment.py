@@ -94,8 +94,6 @@ class Segment:
     start_ms: int
     end_ms: int
     min_conf: float
-    pad_start_ms: int = 0
-    pad_end_ms: int = 0
 
 @dataclass
 class PyannoteEntry:
@@ -368,9 +366,9 @@ def build_segments_single_speaker(run: List[Token], silences: List[Sil]) -> List
 
         # Boundary silence guarantees using precomputed silences
         if not silence_covering_point(silences, seg.start_ms, REQUIRED_SIL_START_MS):
-            seg.pad_start_ms = EDGE_OFFSET_MS
+            pass  # Global padding will handle this
         if not silence_covering_point(silences, seg.end_ms, REQUIRED_SIL_END_MS):
-            seg.pad_end_ms = max(seg.pad_end_ms, EDGE_OFFSET_MS)
+            pass  # Global padding will handle this
 
         segs.append(seg)
         i = i + cut_idx + 1
@@ -383,8 +381,8 @@ def build_segments_single_speaker(run: List[Token], silences: List[Sil]) -> List
             final.append(s)
         else:
             mid = s.start_ms + int((MAX_SEG_SEC * 1000))
-            left = Segment(s.speaker, s.text, s.start_ms, mid, s.min_conf, s.pad_start_ms, EDGE_OFFSET_MS)
-            right = Segment(s.speaker, s.text, mid, s.end_ms, s.min_conf, EDGE_OFFSET_MS, s.pad_end_ms)
+            left = Segment(s.speaker, s.text, s.start_ms, mid, s.min_conf)
+            right = Segment(s.speaker, s.text, mid, s.end_ms, s.min_conf)
             final.extend([left, right])
     return final
 
@@ -429,7 +427,7 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
                 s_start = starts[-1]
                 s_end = ends[-1]
                 if s_end > s_start:
-                    subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
+                    subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf))
                 current = []
         # Add any remaining tokens as last subsegment
         if current:
@@ -439,7 +437,7 @@ def build_segments(tokens: List[Token], silences: List[Sil]) -> List[Segment]:
             text = detokenize_text(subseg_tokens)
             min_conf = min(t.confidence for t in subseg_tokens)
             if s_end > s_start:
-                subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf, seg.pad_start_ms, seg.pad_end_ms))
+                subsegments.append(Segment(seg.speaker, text, s_start, s_end, min_conf))
         # Note: Silence alignment will happen after pyannote refinement
         # Just merge subsegments with no gaps for now
         merged_subsegments = merge_subsegments_with_no_gaps(subsegments)
@@ -527,9 +525,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
             text=subseg.text,
             start_ms=new_start_ms,
             end_ms=new_end_ms,
-            min_conf=subseg.min_conf,
-            pad_start_ms=subseg.pad_start_ms,
-            pad_end_ms=subseg.pad_end_ms
+            min_conf=subseg.min_conf
         )]
     
     aligned_subsegments = []
@@ -551,9 +547,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
             text=subseg.text,
             start_ms=new_start_ms,
             end_ms=new_end_ms,
-            min_conf=subseg.min_conf,
-            pad_start_ms=subseg.pad_start_ms,
-            pad_end_ms=subseg.pad_end_ms
+            min_conf=subseg.min_conf
         )
         
         aligned_subsegments.append(aligned_subseg)
@@ -588,9 +582,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
                     text=current.text,
                     start_ms=current.start_ms,
                     end_ms=split_point,
-                    min_conf=current.min_conf,
-                    pad_start_ms=current.pad_start_ms,
-                    pad_end_ms=current.pad_end_ms
+                    min_conf=current.min_conf
                 )
                 
                 # Update next segment start
@@ -599,9 +591,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
                     text=next_seg.text,
                     start_ms=split_point,
                     end_ms=next_seg.end_ms,
-                    min_conf=next_seg.min_conf,
-                    pad_start_ms=next_seg.pad_start_ms,
-                    pad_end_ms=next_seg.pad_end_ms
+                    min_conf=next_seg.min_conf
                 )
             else:
                 # No silence found, just make them adjacent
@@ -613,9 +603,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
                     text=current.text,
                     start_ms=current.start_ms,
                     end_ms=split_point,
-                    min_conf=current.min_conf,
-                    pad_start_ms=current.pad_start_ms,
-                    pad_end_ms=current.pad_end_ms
+                    min_conf=current.min_conf
                 )
                 
                 aligned_subsegments[i + 1] = Segment(
@@ -623,9 +611,7 @@ def align_subsegments_with_silences(subsegments: List[Segment], silences: List[S
                     text=next_seg.text,
                     start_ms=split_point,
                     end_ms=next_seg.end_ms,
-                    min_conf=next_seg.min_conf,
-                    pad_start_ms=next_seg.pad_start_ms,
-                    pad_end_ms=next_seg.pad_end_ms
+                    min_conf=next_seg.min_conf
                 )
     
     return aligned_subsegments
@@ -724,9 +710,7 @@ def split_subsegments_on_internal_silence(subsegments: List[Segment], silences: 
                                 text=first_text,
                                 start_ms=subseg.start_ms,
                                 end_ms=first_part_end,
-                                min_conf=first_conf,
-                                pad_start_ms=subseg.pad_start_ms,
-                                pad_end_ms=0
+                                min_conf=first_conf
                             )
                             
                             second_text = detokenize_text(second_tokens)
@@ -736,9 +720,7 @@ def split_subsegments_on_internal_silence(subsegments: List[Segment], silences: 
                                 text=second_text,
                                 start_ms=second_part_start,
                                 end_ms=subseg.end_ms,
-                                min_conf=second_conf,
-                                pad_start_ms=0,
-                                pad_end_ms=subseg.pad_end_ms
+                                min_conf=second_conf
                             )
                             
                             # Recursively split both parts
@@ -787,9 +769,7 @@ def merge_subsegments_with_no_gaps(subsegments: List[Segment]) -> List[Segment]:
                 text=merged_text,
                 start_ms=current_segment.start_ms,
                 end_ms=next_segment.end_ms,
-                min_conf=merged_min_conf,
-                pad_start_ms=current_segment.pad_start_ms,
-                pad_end_ms=next_segment.pad_end_ms
+                min_conf=merged_min_conf
             )
         else:
             # There's a significant gap, keep current segment and start new one
@@ -814,7 +794,7 @@ def confidence_prefix(min_conf: float) -> str:
         return "_"
     return ""
 
-def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, min_silence_sec: float = MIN_SILENCE_SEC, min_seg_sec: float = MIN_SEG_SEC, max_seg_sec: float = MAX_SEG_SEC) -> None:
+def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, min_silence_sec: float = MIN_SILENCE_SEC, min_seg_sec: float = MIN_SEG_SEC, max_seg_sec: float = MAX_SEG_SEC, silence_pad_ms: int = 50) -> None:
     """
     Compute segments based on the provided JSON tokens and global silence detection.
     Stores the segment information in a JSON file.
@@ -826,6 +806,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     :param min_silence_sec: Minimum silence length in seconds.
     :param min_seg_sec: Minimum segment length in seconds.
     :param max_seg_sec: Maximum segment length in seconds.
+    :param silence_pad_ms: Global silence padding to add to all segments in milliseconds.
     """
     pyannote_csv_path = Path(json_path.replace('_transcription.json', '_pyannote.csv'))
     silences_json_path = Path(json_path.replace('_transcription.json', '_silences.json'))
@@ -886,9 +867,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
             text=main_seg.text,
             start_ms=new_start_ms,
             end_ms=new_end_ms,
-            min_conf=main_seg.min_conf,
-            pad_start_ms=main_seg.pad_start_ms,
-            pad_end_ms=main_seg.pad_end_ms
+            min_conf=main_seg.min_conf
         )
 
     # Store raw segments (before merging) for debugging
@@ -903,9 +882,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
             'text': main_seg.text,
             'start_ms': main_seg.start_ms,
             'end_ms': main_seg.end_ms,
-            'min_conf': main_seg.min_conf,
-            'pad_start_ms': main_seg.pad_start_ms,
-            'pad_end_ms': main_seg.pad_end_ms
+            'min_conf': main_seg.min_conf
         }
         
         # Convert raw subsegments
@@ -916,9 +893,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
                 'text': subseg.text,
                 'start_ms': subseg.start_ms,
                 'end_ms': subseg.end_ms,
-                'min_conf': subseg.min_conf,
-                'pad_start_ms': subseg.pad_start_ms,
-                'pad_end_ms': subseg.pad_end_ms
+                'min_conf': subseg.min_conf
             })
         
         raw_segments_data.append({
@@ -952,9 +927,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
             'text': main_seg.text,
             'start_ms': main_seg.start_ms,
             'end_ms': main_seg.end_ms,
-            'min_conf': main_seg.min_conf,
-            'pad_start_ms': main_seg.pad_start_ms,
-            'pad_end_ms': main_seg.pad_end_ms
+            'min_conf': main_seg.min_conf
         }
         
         # Convert subsegments
@@ -965,9 +938,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
                 'text': subseg.text,
                 'start_ms': subseg.start_ms,
                 'end_ms': subseg.end_ms,
-                'min_conf': subseg.min_conf,
-                'pad_start_ms': subseg.pad_start_ms,
-                'pad_end_ms': subseg.pad_end_ms
+                'min_conf': subseg.min_conf
             })
         
         serializable_segments.append({
@@ -990,7 +961,7 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     print(f"[ok] Computed {len(segments)} segments and saved to {outfile}")
 
 
-def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE) -> None:
+def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE, silence_pad_ms: int = 50) -> None:
     """
     Generate audio segments (wav and txt files) from a segments JSON file.
     
@@ -998,6 +969,7 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
     :param audio_path: Path to the input audio file.
     :param outdir: Output directory for segments.
     :param export_rate: Export sample rate for WAV files.
+    :param silence_pad_ms: Global silence padding to add to all segments in milliseconds.
     """
     # Load segments from JSON
     
@@ -1025,9 +997,7 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
             text=main_seg_data['text'],
             start_ms=main_seg_data['start_ms'],
             end_ms=main_seg_data['end_ms'],
-            min_conf=main_seg_data['min_conf'],
-            pad_start_ms=main_seg_data.get('pad_start_ms', 0),
-            pad_end_ms=main_seg_data.get('pad_end_ms', 0)
+            min_conf=main_seg_data['min_conf']
         )
         
         spk_dir = outdir / "speakers" / str(main_seg.speaker)
@@ -1040,7 +1010,7 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
         base = f"clip{seg_idx:02d}{prefix}"
         wav_path = spk_dir / f"{base}.wav"
         txt_path = spk_dir / f"{base}.txt"
-        ffmpeg_extract(audio_path, main_seg.start_ms, main_seg.end_ms, wav_path, main_seg.pad_start_ms, main_seg.pad_end_ms)
+        ffmpeg_extract(audio_path, main_seg.start_ms, main_seg.end_ms, wav_path, silence_pad_ms, silence_pad_ms)
         txt_path.write_text(main_seg.text + "\n", encoding="utf-8")
 
         # Write subsegments as clipxx_yy, but only if more than 1 subsegment and subsegment != main segment
@@ -1052,9 +1022,7 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
                     text=subseg_data['text'],
                     start_ms=subseg_data['start_ms'],
                     end_ms=subseg_data['end_ms'],
-                    min_conf=subseg_data['min_conf'],
-                    pad_start_ms=subseg_data.get('pad_start_ms', 0),
-                    pad_end_ms=subseg_data.get('pad_end_ms', 0)
+                    min_conf=subseg_data['min_conf']
                 )
                 
                 # skip subsegment if it is identical to main segment
@@ -1064,7 +1032,7 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
                 sub_base = f"clip{seg_idx:02d}_{sub_idx:02d}{sub_prefix}"
                 sub_wav_path = spk_dir / f"{sub_base}.wav"
                 sub_txt_path = spk_dir / f"{sub_base}.txt"
-                ffmpeg_extract(audio_path, subseg.start_ms, subseg.end_ms, sub_wav_path, subseg.pad_start_ms, subseg.pad_end_ms)
+                ffmpeg_extract(audio_path, subseg.start_ms, subseg.end_ms, sub_wav_path, silence_pad_ms, silence_pad_ms)
                 sub_txt_path.write_text(subseg.text + "\n", encoding="utf-8")
 
     total = sum(counters.values())
@@ -1158,9 +1126,7 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
                 text=refined_main.text,
                 start_ms=new_start_ms,
                 end_ms=refined_main.end_ms,
-                min_conf=refined_main.min_conf,
-                pad_start_ms=refined_main.pad_start_ms,
-                pad_end_ms=refined_main.pad_end_ms
+                min_conf=refined_main.min_conf
             )
         
         # Extend last segment's end to annotation end (if annotation ends later)
@@ -1173,9 +1139,7 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
                 text=refined_main.text,
                 start_ms=refined_main.start_ms,
                 end_ms=new_end_ms,
-                min_conf=refined_main.min_conf,
-                pad_start_ms=refined_main.pad_start_ms,
-                pad_end_ms=refined_main.pad_end_ms
+                min_conf=refined_main.min_conf
             )
     
     # Recheck boundary silence guarantees and update subsegments for modified segments
@@ -1189,9 +1153,9 @@ def refine_segments_with_pyannote(segments_list: List[dict], pyannote_entries: L
             
             # Recheck boundary silence guarantees
             if not silence_covering_point(silences, refined_main.start_ms, REQUIRED_SIL_START_MS):
-                refined_main.pad_start_ms = EDGE_OFFSET_MS
+                pass  # Global padding will handle this
             if not silence_covering_point(silences, refined_main.end_ms, REQUIRED_SIL_END_MS):
-                refined_main.pad_end_ms = max(refined_main.pad_end_ms, EDGE_OFFSET_MS)
+                pass  # Global padding will handle this
             
             # Update the segment in the list
             refined_segments[i]['main'] = refined_main
@@ -1218,9 +1182,7 @@ def scale_subsegments(main_segment: Segment, original_main: Segment, subsegments
             text=subsegments[0].text,
             start_ms=main_segment.start_ms,
             end_ms=main_segment.end_ms,
-            min_conf=subsegments[0].min_conf,
-            pad_start_ms=main_segment.pad_start_ms,
-            pad_end_ms=main_segment.pad_end_ms
+            min_conf=subsegments[0].min_conf
         )]
     
     # Calculate scaling factors
@@ -1260,9 +1222,7 @@ def scale_subsegments(main_segment: Segment, original_main: Segment, subsegments
             text=subseg.text,
             start_ms=new_start,
             end_ms=new_end,
-            min_conf=subseg.min_conf,
-            pad_start_ms=subseg.pad_start_ms if i == 0 else 0,
-            pad_end_ms=subseg.pad_end_ms if i == len(subsegments) - 1 else 0
+            min_conf=subseg.min_conf
         ))
     
     return scaled_subsegments
@@ -1289,6 +1249,7 @@ def main():
     compute_parser.add_argument("--min-sil", type=float, default=MIN_SILENCE_SEC, help="Min silence (sec) for detector (default: 0.02)")
     compute_parser.add_argument("--min-seg", type=float, default=MIN_SEG_SEC, help="Minimum segment length in seconds (default: 1.0)")
     compute_parser.add_argument("--max-seg", type=float, default=MAX_SEG_SEC, help="Maximum segment length in seconds (default: 25.0)")
+    compute_parser.add_argument("--silence-pad", type=int, default=50, help="Silence padding in milliseconds (default: 50)")
     
     # Subcommand for generating audio files
     generate_parser = subparsers.add_parser('generate', help='Generate audio files from segments JSON')
@@ -1296,6 +1257,7 @@ def main():
     generate_parser.add_argument("audio_path", type=Path, help="Path to input audio (.mp3 or .wav)")
     generate_parser.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory (default: out/)")
     generate_parser.add_argument("--rate", type=int, default=EXPORT_RATE, help="Export WAV sample rate or 0 to keep original (default: 16000)")
+    generate_parser.add_argument("--silence-pad", type=int, default=50, help="Silence padding in milliseconds (default: 50)")
     
     # Legacy mode (original behavior)
     ap.add_argument("json_path", type=Path, nargs='?', help="Path to JSON file with tokens (legacy mode)")
@@ -1306,6 +1268,7 @@ def main():
     ap.add_argument("--min-seg", type=float, default=MIN_SEG_SEC, help="Minimum segment length in seconds (default: 1.0)")
     ap.add_argument("--max-seg", type=float, default=MAX_SEG_SEC, help="Maximum segment length in seconds (default: 25.0)")
     ap.add_argument("--rate", type=int, default=EXPORT_RATE, help="Export WAV sample rate or 0 to keep original (default: 16000)")
+    ap.add_argument("--silence-pad", type=int, default=50, help="Silence padding in milliseconds (default: 50)")
     
     args = ap.parse_args()
 
@@ -1322,7 +1285,8 @@ def main():
             silence_db=args.silence_db,
             min_silence_sec=args.min_sil,
             min_seg_sec=args.min_seg,
-            max_seg_sec=args.max_seg
+            max_seg_sec=args.max_seg,
+            silence_pad_ms=args.silence_pad
         )
     elif args.command == 'generate':
         if not args.segments_json.exists():
@@ -1334,7 +1298,8 @@ def main():
             segments_json_path=args.segments_json,
             audio_path=args.audio_path,
             outdir=args.outdir,
-            export_rate=args.rate if args.rate and args.rate > 0 else None
+            export_rate=args.rate if args.rate and args.rate > 0 else None,
+            silence_pad_ms=args.silence_pad
         )
     else:
         # Legacy mode - original behavior
@@ -1356,7 +1321,8 @@ def main():
             silence_db=args.silence_db,
             min_silence_sec=args.min_sil,
             min_seg_sec=args.min_seg,
-            max_seg_sec=args.max_seg
+            max_seg_sec=args.max_seg,
+            silence_pad_ms=args.silence_pad
         )
         
         # Then generate audio files
@@ -1364,7 +1330,8 @@ def main():
             segments_json_path=segments_file,
             audio_path=args.audio_path,
             outdir=args.outdir,
-            export_rate=args.rate if args.rate and args.rate > 0 else None
+            export_rate=args.rate if args.rate and args.rate > 0 else None,
+            silence_pad_ms=args.silence_pad
         )
         
         # Clean up temp file

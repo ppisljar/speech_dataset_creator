@@ -75,6 +75,28 @@
                 <label for="modalMaxSpeakers">Max Speakers (0 = auto-detect):</label>
                 <input type="number" id="modalMaxSpeakers" value="0" step="1" min="0" max="20">
             </div>
+            <div class="form-group">
+                <label for="modalSilencePad">Silence Padding (ms):</label>
+                <input type="number" id="modalSilencePad" value="50" step="10" min="0" max="500">
+            </div>
+            <div class="form-group">
+                <label for="modalLanguage">Transcription Language:</label>
+                <select id="modalLanguage">
+                    <option value="sl">Slovenian (sl)</option>
+                    <option value="en">English (en)</option>
+                    <option value="de">German (de)</option>
+                    <option value="fr">French (fr)</option>
+                    <option value="es">Spanish (es)</option>
+                    <option value="it">Italian (it)</option>
+                    <option value="pt">Portuguese (pt)</option>
+                    <option value="nl">Dutch (nl)</option>
+                    <option value="pl">Polish (pl)</option>
+                    <option value="cs">Czech (cs)</option>
+                    <option value="sk">Slovak (sk)</option>
+                    <option value="hr">Croatian (hr)</option>
+                    <option value="sr">Serbian (sr)</option>
+                </select>
+            </div>
             <div class="button-group">
                 <button onclick="closeModal('addProjectModal')">Cancel</button>
                 <button onclick="createProjectWithSettings()">Create Project</button>
@@ -104,6 +126,28 @@
             <div class="form-group">
                 <label for="editMaxSpeakers">Max Speakers (0 = auto-detect):</label>
                 <input type="number" id="editMaxSpeakers" value="0" step="1" min="0" max="20">
+            </div>
+            <div class="form-group">
+                <label for="editSilencePad">Silence Padding (ms):</label>
+                <input type="number" id="editSilencePad" value="50" step="10" min="0" max="500">
+            </div>
+            <div class="form-group">
+                <label for="editLanguage">Transcription Language:</label>
+                <select id="editLanguage">
+                    <option value="sl">Slovenian (sl)</option>
+                    <option value="en">English (en)</option>
+                    <option value="de">German (de)</option>
+                    <option value="fr">French (fr)</option>
+                    <option value="es">Spanish (es)</option>
+                    <option value="it">Italian (it)</option>
+                    <option value="pt">Portuguese (pt)</option>
+                    <option value="nl">Dutch (nl)</option>
+                    <option value="pl">Polish (pl)</option>
+                    <option value="cs">Czech (cs)</option>
+                    <option value="sk">Slovak (sk)</option>
+                    <option value="hr">Croatian (hr)</option>
+                    <option value="sr">Serbian (sr)</option>
+                </select>
             </div>
             <div class="button-group">
                 <button onclick="closeModal('editProjectModal')">Cancel</button>

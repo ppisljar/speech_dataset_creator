@@ -229,7 +229,9 @@ def create_project_routes(projects_dir, processing_status):
                 default_settings = {
                     'silenceThreshold': -40,
                     'minSilenceLength': 500,
-                    'maxSpeakers': 0
+                    'maxSpeakers': 0,
+                    'silencePad': 50,
+                    'language': 'sl'
                 }
                 return jsonify(default_settings)
             

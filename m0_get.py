@@ -87,7 +87,7 @@ def convert_m4a_to_wav(input_file, output_file):
 def download_mp3(url, file_name, override=False):
     try:
         # Determine the final WAV filename
-        if file_name.lower().endswith('.wav'):
+        if file_name.lower().endswith('.wav') or file_name.lower().endswith('.mp3'):
             final_wav_file = file_name
         else:
             # Change extension to .wav for final output

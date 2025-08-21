@@ -487,7 +487,7 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 original_transcription = f.read().strip()
 
             # Trim silence from audio file
-            trimmed_audio_file = _trim_silence(wav_file)
+            trimmed_audio_file = wav_file # _trim_silence(wav_file)
             
             # Transcribe the trimmed audio
             try:

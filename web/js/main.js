@@ -223,6 +223,8 @@ function showAddProjectModal() {
     document.getElementById('modalSilenceThreshold').value = '-40';
     document.getElementById('modalMinSilenceLength').value = '500';
     document.getElementById('modalMaxSpeakers').value = '0';
+    document.getElementById('modalSilencePad').value = '50';
+    document.getElementById('modalLanguage').value = 'sl';
     document.getElementById('addProjectModal').style.display = 'block';
 }
 
@@ -243,17 +245,23 @@ async function showEditProjectModal() {
             document.getElementById('editSilenceThreshold').value = settings.silenceThreshold || -40;
             document.getElementById('editMinSilenceLength').value = settings.minSilenceLength || 500;
             document.getElementById('editMaxSpeakers').value = settings.maxSpeakers || 0;
+            document.getElementById('editSilencePad').value = settings.silencePad || 50;
+            document.getElementById('editLanguage').value = settings.language || 'sl';
         } else {
             // Use defaults if settings not found
             document.getElementById('editSilenceThreshold').value = '-40';
             document.getElementById('editMinSilenceLength').value = '500';
             document.getElementById('editMaxSpeakers').value = '0';
+            document.getElementById('editSilencePad').value = '50';
+            document.getElementById('editLanguage').value = 'sl';
         }
     } catch (error) {
         // Use defaults if error loading settings
         document.getElementById('editSilenceThreshold').value = '-40';
         document.getElementById('editMinSilenceLength').value = '500';
         document.getElementById('editMaxSpeakers').value = '0';
+        document.getElementById('editSilencePad').value = '50';
+        document.getElementById('editLanguage').value = 'sl';
         podcastManager.showMessage('Could not load project settings, using defaults', true);
     }
     
@@ -281,6 +289,8 @@ async function createProjectWithSettings() {
     const silenceThreshold = document.getElementById('modalSilenceThreshold').value;
     const minSilenceLength = document.getElementById('modalMinSilenceLength').value;
     const maxSpeakers = document.getElementById('modalMaxSpeakers').value;
+    const silencePad = document.getElementById('modalSilencePad').value;
+    const language = document.getElementById('modalLanguage').value;
     
     if (!name) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -298,7 +308,9 @@ async function createProjectWithSettings() {
                 settings: {
                     silenceThreshold: parseFloat(silenceThreshold),
                     minSilenceLength: parseInt(minSilenceLength),
-                    maxSpeakers: parseInt(maxSpeakers)
+                    maxSpeakers: parseInt(maxSpeakers),
+                    silencePad: parseInt(silencePad),
+                    language: language
                 }
             })
         });
@@ -326,6 +338,8 @@ async function updateProjectWithSettings() {
     const silenceThreshold = document.getElementById('editSilenceThreshold').value;
     const minSilenceLength = document.getElementById('editMinSilenceLength').value;
     const maxSpeakers = document.getElementById('editMaxSpeakers').value;
+    const silencePad = document.getElementById('editSilencePad').value;
+    const language = document.getElementById('editLanguage').value;
     
     if (!newName) {
         podcastManager.showMessage('Please enter a project name', true);
@@ -343,7 +357,9 @@ async function updateProjectWithSettings() {
                 settings: {
                     silenceThreshold: parseFloat(silenceThreshold),
                     minSilenceLength: parseInt(minSilenceLength),
-                    maxSpeakers: parseInt(maxSpeakers)
+                    maxSpeakers: parseInt(maxSpeakers),
+                    silencePad: parseInt(silencePad),
+                    language: language
                 }
             })
         });

@@ -129,6 +129,7 @@ def split_audio(input_path: Path, output_dir: Path, silence_db: int = SILENCE_DB
     global MIN_SEG_SEC, MAX_SEG_SEC
     MIN_SEG_SEC = min_minutes * 60
     MAX_SEG_SEC = max_minutes * 60
+    
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 

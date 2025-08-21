@@ -33,7 +33,10 @@ def poll_until_complete(transcription_id):
         time.sleep(1)
 
 
-def transcribe_file(input_file, output_file="output.json", skip_file_output=False):
+def transcribe_file(input_file, output_file="output.json", skip_file_output=False, language=None):
+    # Use provided language parameter or fall back to environment variable
+    lang = language if language is not None else os.environ.get("SONIOX_LANG", "sl")
+    
     try:
         print("Starting file upload...")
 
@@ -54,7 +57,7 @@ def transcribe_file(input_file, output_file="output.json", skip_file_output=Fals
             json={
                 "file_id": file_id,
                 "model": "stt-async-preview",
-                "language_hints": [language],
+                "language_hints": [lang],
                 "enable_speaker_diarization": True,
             },
         )
