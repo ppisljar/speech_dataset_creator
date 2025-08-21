@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None):
+def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None, skip=False):
     """
     Process a single podcast file through the pipeline.
     
@@ -27,6 +27,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
         override (bool): Whether to override existing output files. Defaults to False.
         segment (bool): Whether to enable segmentation. Defaults to False.
         settings (dict): Project settings dictionary. Defaults to None.
+        skip (bool): Skip processing split files if split audio and silence files exist but transcription doesn't. Defaults to False.
     
     Returns:
         None
@@ -65,9 +66,11 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
         print(f"Cleaning audio {file_path} to {clean_file}")
         clean_audio(file_path, clean_file)
 
+    split_audio_exists = False
     # if any wav inside file_temp_dir exists, we skip the splitting
     if any(f.endswith('.wav') and not f.endswith('_cleaned_audio.wav') for f in os.listdir(file_temp_dir)) and not override:
         print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
+        split_audio_exists = True
     else:
         print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
         try:
@@ -105,6 +108,11 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             wespeaker_file = f"{split_path}_wespeaker"
             segments_file = f"{split_path}_segments.json"
             speaker_db_file = f"{split_path}_speaker_db.npy"
+
+            # Check if we should skip this split file when --skip is provided
+            if skip and split_audio_exists and os.path.exists(silence_file) and not os.path.exists(transcription_file):
+                print(f"Skipping {split_file}: split audio and silence files exist but transcription doesn't (--skip flag provided)")
+                continue
 
             if not override and os.path.exists(silence_file):
                 print(f"Silence file already exists, skipping silence detection.")
@@ -187,13 +195,14 @@ def main():
     Main function to run the podcast processing pipeline.
 
     Usage:
-        python run.py <file_path> [temp_dir] [--override] [--segment]
+        python run.py <file_path> [temp_dir] [--override] [--segment] [--skip]
 
     Args:
         file_path (str): Path to the podcast file (required)
         temp_dir (str): Output directory (optional, defaults to "./output")
         --override (bool): Whether to override existing output files (optional, defaults to False).
         --segment (bool): Whether to enable segmentation (optional, defaults to False).
+        --skip (bool): Skip processing split files if split audio and silence files exist but transcription doesn't (optional, defaults to False).
 
     Returns:
         None
@@ -205,13 +214,14 @@ def main():
     parser.add_argument("temp_dir", type=str, nargs="?", default="./output", help="Output directory (optional, defaults to './output')")
     parser.add_argument("--override", action="store_true", help="Override existing output files")
     parser.add_argument("--segment", action="store_true", help="Enable segmentation")
+    parser.add_argument("--skip", action="store_true", help="Skip processing split files if split audio and silence files exist but transcription doesn't")
 
     args = parser.parse_args()
 
     if not os.path.exists(args.temp_dir):
         os.makedirs(args.temp_dir)
 
-    process_file(args.file_path, args.temp_dir, args.override, args.segment)
+    process_file(args.file_path, args.temp_dir, args.override, args.segment, None, args.skip)
 
     # for podcast in podcasts:
     #     process_file(podcast, args.temp_dir, args.override)

@@ -6,7 +6,7 @@ This script will automatically find all audio files in the specified project's
 raw directory and process them through the complete pipeline.
 
 Usage:
-    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean] [--meta]
+    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean] [--meta] [--copy] [--skip]
 
 Arguments:
     project_name: Name of the project to process
@@ -16,6 +16,7 @@ Arguments:
     --clean: Remove files that fail validation (can be used alone if bad_segments.json exists) (optional)
     --meta: Generate metadata file for the project after processing segments (optional)
     --copy: Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips (optional)
+    --skip: Skip processing split files if split audio and silence files exist but transcription doesn't (optional)
 
 Examples:
     python run_all.py my_project
@@ -27,6 +28,7 @@ Examples:
     python run_all.py my_project --segment --meta
     python run_all.py my_project --validate --copy
     python run_all.py my_project --copy
+    python run_all.py my_project --skip
 """
 
 import os
@@ -51,6 +53,7 @@ def main():
     parser.add_argument("--clean", action="store_true", help="Remove files that fail validation (can be used alone if bad_segments.json exists)")
     parser.add_argument("--meta", action="store_true", help="Generate metadata file for the project after processing segments")
     parser.add_argument("--copy", action="store_true", help="Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips")
+    parser.add_argument("--skip", action="store_true", help="Skip processing split files if split audio and silence files exist but transcription doesn't")
     
     args = parser.parse_args()
    
@@ -113,6 +116,7 @@ def main():
     print(f"\nProcessing settings:")
     print(f"  Override existing files: {'Yes' if args.override else 'No'}")
     print(f"  Enable segmentation: {'Yes' if args.segment else 'No'}")
+    print(f"  Skip incomplete splits: {'Yes' if args.skip else 'No'}")
     print(f"  Generate metadata: {'Yes' if args.meta else 'No'}")
     print(f"  Copy good segments to audio folder: {'Yes' if args.copy else 'No'}")
     if args.validate:
@@ -145,7 +149,7 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
             
             # Process the file
-            success = process_file(raw_file_path, output_dir, args.override, args.segment, settings)
+            success = process_file(raw_file_path, output_dir, args.override, args.segment, settings, args.skip)
             
             if success is not False:  # process_file returns None on success, False on failure
                 print(f"✓ Successfully processed: {filename}")
