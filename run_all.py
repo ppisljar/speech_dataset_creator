@@ -42,6 +42,7 @@ from pathlib import Path
 from run import process_file
 from m7_validate import validate_project, copy_good_segments_to_project_audio
 from m8_meta import generate_metadata
+from progress_manager import ProgressManager
 
 def main():
     """Main function to process all files in a project."""
@@ -132,118 +133,154 @@ def main():
             print(f"  {key}: {value}")
     print()
     
-    # Process each file
-    success_count = 0
-    failed_files = []
-    
-    for i, filename in enumerate(audio_files, 1):
-        print(f"[{i}/{len(audio_files)}] Processing: {filename}")
-        print("-" * 50)
-        
-        try:
-            # File paths
-            raw_file_path = os.path.join(raw_dir, filename)
-            output_dir = os.path.join(splits_dir, filename)
-            
-            # Create output directory for this file
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Process the file
-            success = process_file(raw_file_path, output_dir, args.override, args.segment, settings, args.skip)
-            
-            if success is not False:  # process_file returns None on success, False on failure
-                print(f"✓ Successfully processed: {filename}")
-                success_count += 1
-            else:
-                print(f"✗ Failed to process: {filename}")
-                failed_files.append(filename)
-                
-        except Exception as e:
-            print(f"✗ Error processing {filename}: {str(e)}")
-            failed_files.append(filename)
-        
-        print()
-    
-    # Summary
-    print("=" * 60)
-    print("PROCESSING SUMMARY")
-    print("=" * 60)
-    print(f"Total files: {len(audio_files)}")
-    print(f"Successfully processed: {success_count}")
-    print(f"Failed: {len(failed_files)}")
-
-
-    # Handle validation and/or cleaning
+    # Calculate total steps for overall progress
+    total_steps = 1  # File processing
     if args.validate or args.clean:
-        print("\n" + "=" * 60)
-        
-        if args.validate:
-            print(f"Running validation for project: {args.project_name}")
-            if args.clean:
-                print("Files that fail validation will be removed.")
-            print("=" * 60)
-            
-            # Run validation with clean option if specified
-            validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=True)
-            
-            if validation_results:
-                print("\nValidation completed successfully!")
-            else:
-                print("\nValidation failed or no segments found to validate.")
-                sys.exit(1)
-                
-        elif args.clean:
-            print(f"Cleaning existing bad segments for project: {args.project_name}")
-            print("=" * 60)
-            
-            # Use validate_project with delete_bad=True and force_revalidate=False to clean existing bad segments
-            validation_results = validate_project(args.project_name, delete_bad=True, score_threshold=85, force_revalidate=False)
-            
-            if validation_results:
-                print("\nCleaning completed successfully!")
-            else:
-                print("\nNo bad segments found to clean or cleaning failed.")
-                sys.exit(1)
-        
-    
-    # Handle copying good segments if requested
+        total_steps += 1
     if args.copy:
-        print("\n" + "=" * 60)
-        print(f"Copying good segments to project/audio folder for project: {args.project_name}")
-        print("=" * 60)
-        
-        try:
-            copy_stats = copy_good_segments_to_project_audio(args.project_name)
-            if copy_stats:
-                print("\nCopy operation completed successfully!")
-            else:
-                print("\nCopy operation failed or no segments to copy.")
-        except Exception as e:
-            print(f"\nError during copy operation: {str(e)}")
-            sys.exit(1)
-        
-    
-    # Generate metadata if requested
+        total_steps += 1
     if args.meta:
-        print("\n" + "=" * 60)
-        print(f"Generating metadata for project: {args.project_name}")
-        print("=" * 60)
-        
-        try:
-            metadata_file = os.path.join(audio_dir, "metadata.csv")
-            generate_metadata(project_dir, metadata_file)
-            print(f"✓ Metadata file generated: {metadata_file}")
-        except Exception as e:
-            print(f"✗ Error generating metadata: {str(e)}")
+        total_steps += 1
     
-    if failed_files:
-        print(f"\nFailed files:")
-        for filename in failed_files:
-            print(f"  - {filename}")
-        sys.exit(1)
-    else:
-        print(f"\nAll files processed successfully!")
-        print(f"Output directory: {splits_dir}")
+    # Start the progress manager
+    with ProgressManager() as pm:
+        pm.init_overall_progress(total_steps, "Overall Progress")
+        pm.init_file_progress(len(audio_files), "Processing Files")
+        
+        # Process each file
+        success_count = 0
+        failed_files = []
+        current_step = 1
+        
+        pm.update_overall(0, f"Step {current_step}/{total_steps}: Processing Files")
+        
+        for i, filename in enumerate(audio_files, 1):
+            pm.update_file(0, f"[{i}/{len(audio_files)}] Processing: {filename}")
+            pm.print_log(f"[{i}/{len(audio_files)}] Processing: {filename}")
+            pm.print_log("-" * 50)
+            
+            try:
+                # File paths
+                raw_file_path = os.path.join(raw_dir, filename)
+                output_dir = os.path.join(splits_dir, filename)
+                
+                # Create output directory for this file
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Process the file
+                success = process_file(raw_file_path, output_dir, args.override, args.segment, settings, args.skip, pm)
+                
+                if success is not False:  # process_file returns None on success, False on failure
+                    pm.print_log(f"✓ Successfully processed: {filename}")
+                    success_count += 1
+                else:
+                    pm.print_log(f"✗ Failed to process: {filename}")
+                    failed_files.append(filename)
+                    
+            except Exception as e:
+                pm.print_log(f"✗ Error processing {filename}: {str(e)}")
+                failed_files.append(filename)
+            
+            pm.update_file(1)
+            pm.print_log("")
+        
+        # Update overall progress after file processing
+        pm.update_overall(1)
+        current_step += 1
+        
+        # Summary
+        pm.print_log("=" * 60)
+        pm.print_log("PROCESSING SUMMARY")
+        pm.print_log("=" * 60)
+        pm.print_log(f"Total files: {len(audio_files)}")
+        pm.print_log(f"Successfully processed: {success_count}")
+        pm.print_log(f"Failed: {len(failed_files)}")
+
+        # Handle validation and/or cleaning
+        if args.validate or args.clean:
+            pm.update_overall(0, f"Step {current_step}/{total_steps}: Validation")
+            pm.print_log("\n" + "=" * 60)
+            
+            if args.validate:
+                pm.print_log(f"Running validation for project: {args.project_name}")
+                if args.clean:
+                    pm.print_log("Files that fail validation will be removed.")
+                pm.print_log("=" * 60)
+                
+                # Run validation with clean option if specified
+                validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=True, progress_manager=pm)
+                
+                if validation_results:
+                    pm.print_log("\nValidation completed successfully!")
+                else:
+                    pm.print_log("\nValidation failed or no segments found to validate.")
+                    pm.stop()
+                    sys.exit(1)
+                    
+            elif args.clean:
+                pm.print_log(f"Cleaning existing bad segments for project: {args.project_name}")
+                pm.print_log("=" * 60)
+                
+                # Use validate_project with delete_bad=True and force_revalidate=False to clean existing bad segments
+                validation_results = validate_project(args.project_name, delete_bad=True, score_threshold=85, force_revalidate=False, progress_manager=pm)
+                
+                if validation_results:
+                    pm.print_log("\nCleaning completed successfully!")
+                else:
+                    pm.print_log("\nNo bad segments found to clean or cleaning failed.")
+                    pm.stop()
+                    sys.exit(1)
+            
+            pm.update_overall(1)
+            current_step += 1
+        
+        # Handle copying good segments if requested
+        if args.copy:
+            pm.update_overall(0, f"Step {current_step}/{total_steps}: Copying Segments")
+            pm.print_log("\n" + "=" * 60)
+            pm.print_log(f"Copying good segments to project/audio folder for project: {args.project_name}")
+            pm.print_log("=" * 60)
+            
+            try:
+                copy_stats = copy_good_segments_to_project_audio(args.project_name)
+                if copy_stats:
+                    pm.print_log("\nCopy operation completed successfully!")
+                else:
+                    pm.print_log("\nCopy operation failed or no segments to copy.")
+            except Exception as e:
+                pm.print_log(f"\nError during copy operation: {str(e)}")
+                pm.stop()
+                sys.exit(1)
+            
+            pm.update_overall(1)
+            current_step += 1
+            
+        # Generate metadata if requested
+        if args.meta:
+            pm.update_overall(0, f"Step {current_step}/{total_steps}: Generating Metadata")
+            pm.print_log("\n" + "=" * 60)
+            pm.print_log(f"Generating metadata for project: {args.project_name}")
+            pm.print_log("=" * 60)
+            
+            try:
+                metadata_file = os.path.join(audio_dir, "metadata.csv")
+                generate_metadata(project_dir, metadata_file)
+                pm.print_log(f"✓ Metadata file generated: {metadata_file}")
+            except Exception as e:
+                pm.print_log(f"✗ Error generating metadata: {str(e)}")
+            
+            pm.update_overall(1)
+        
+        # Final summary
+        if failed_files:
+            pm.print_log(f"\nFailed files:")
+            for filename in failed_files:
+                pm.print_log(f"  - {filename}")
+            pm.stop()
+            sys.exit(1)
+        else:
+            pm.print_log(f"\nAll files processed successfully!")
+            pm.print_log(f"Output directory: {splits_dir}")
 
 
 if __name__ == "__main__":

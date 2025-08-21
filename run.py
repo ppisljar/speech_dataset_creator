@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None, skip=False):
+def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None, skip=False, progress_manager=None):
     """
     Process a single podcast file through the pipeline.
     
@@ -28,12 +28,21 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
         segment (bool): Whether to enable segmentation. Defaults to False.
         settings (dict): Project settings dictionary. Defaults to None.
         skip (bool): Skip processing split files if split audio and silence files exist but transcription doesn't. Defaults to False.
+        progress_manager: ProgressManager instance for tracking progress. Defaults to None.
     
     Returns:
         None
     """
     file_name = os.path.basename(file_path)
-    print(f"Processing file: {file_name}")
+    
+    def log_print(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
+    
+    log_print(f"Processing file: {file_name}")
     
     # Initialize settings if not provided
     if settings is None:
@@ -45,13 +54,13 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     max_speakers = settings.get('maxSpeakers', 0)
     silence_pad = settings.get('silencePad', 50)
     transcription_language = settings.get('language', 'sl')
-    print(f"Silence detection settings: threshold={silence_thresh}dB, min_length={min_silence_len}ms")
-    print(f"Silence padding: {silence_pad}ms")
-    print(f"Transcription language: {transcription_language}")
+    log_print(f"Silence detection settings: threshold={silence_thresh}dB, min_length={min_silence_len}ms")
+    log_print(f"Silence padding: {silence_pad}ms")
+    log_print(f"Transcription language: {transcription_language}")
     if max_speakers > 0:
-        print(f"Speaker diarization settings: max_speakers={max_speakers}")
+        log_print(f"Speaker diarization settings: max_speakers={max_speakers}")
     else:
-        print(f"Speaker diarization settings: max_speakers=auto")
+        log_print(f"Speaker diarization settings: max_speakers=auto")
 
     # in temp folder we create a cleaned audio file and temp_folder/<file_name>/ where we store all the split audio files
     file_temp_dir = Path(temp_dir) # Path(os.path.join(temp_dir, file_name))
@@ -60,29 +69,29 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
 
     clean_file = Path(os.path.join(temp_dir, f"{file_name}_cleaned_audio.wav"))
     if not override and clean_file.exists():
-        print(f"Cleaned audio file {clean_file} already exists, skipping cleaning.")
+        log_print(f"Cleaned audio file {clean_file} already exists, skipping cleaning.")
     else:
         # Clean the audio file
-        print(f"Cleaning audio {file_path} to {clean_file}")
+        log_print(f"Cleaning audio {file_path} to {clean_file}")
         clean_audio(file_path, clean_file)
 
     split_audio_exists = False
     # if any wav inside file_temp_dir exists, we skip the splitting
     if any(f.endswith('.wav') and not f.endswith('_cleaned_audio.wav') for f in os.listdir(file_temp_dir)) and not override:
-        print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
+        log_print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
         split_audio_exists = True
     else:
-        print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
+        log_print(f"Splitting audio {clean_file} into segments in {file_temp_dir}")
         try:
             # Extract silence settings from project config
             silence_thresh = settings.get('silenceThreshold', -35) if settings else -35
             min_silence_len = settings.get('minSilenceLength', 500) / 1000.0 if settings else 0.5  # Convert ms to seconds
-            print(f"[info] Split settings: silence_db={silence_thresh}dB, min_silence_length={min_silence_len}s")
+            log_print(f"[info] Split settings: silence_db={silence_thresh}dB, min_silence_length={min_silence_len}s")
             
             split_audio(clean_file, file_temp_dir, silence_db=silence_thresh, silence_min=min_silence_len)
         except NoAdequateSilenceError as e:
-            print(f"Error: {e}")
-            print(f"Skipping file {file_name} due to splitting failure.")
+            log_print(f"Error: {e}")
+            log_print(f"Skipping file {file_name} due to splitting failure.")
             return False
 
     # for each split audio file, perform transcription and diarization
@@ -90,15 +99,27 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     
     # If no wav files were created (splitting failed), return False
     if split_count == 0:
-        print(f"No audio files found after splitting. Skipping further processing for {file_name}.")
+        log_print(f"No audio files found after splitting. Skipping further processing for {file_name}.")
         return False
     
+    # Initialize split progress if progress manager is available
+    if progress_manager:
+        # Count splits excluding the cleaned audio file if multiple splits exist
+        actual_splits = [f for f in os.listdir(file_temp_dir) 
+                        if f.endswith(".wav") and not (f.endswith("_cleaned_audio.wav") and split_count > 1)]
+        progress_manager.init_split_progress(len(actual_splits), "Processing Splits")
+    
+    split_index = 0
     for split_file in os.listdir(file_temp_dir):
         # if we have more than single split (more than 1 .wav file in the folder):
         if split_file.endswith(f"_cleaned_audio.wav") and split_count > 1:
             continue
         if split_file.endswith(".wav"):
-            print(f"Processing split file: {split_file}")
+            split_index += 1
+            if progress_manager:
+                progress_manager.update_split(0, f"Processing split {split_index}: {split_file}")
+            
+            log_print(f"Processing split file: {split_file}")
             split_path = os.path.join(file_temp_dir, split_file)
 
             silence_file = f"{split_path}_silences.json"
@@ -111,84 +132,143 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
 
             # Check if we should skip this split file when --skip is provided
             if skip and split_audio_exists and os.path.exists(silence_file) and not os.path.exists(transcription_file):
-                print(f"Skipping {split_file}: split audio and silence files exist but transcription doesn't (--skip flag provided)")
+                log_print(f"Skipping {split_file}: split audio and silence files exist but transcription doesn't (--skip flag provided)")
                 continue
 
+            # Processing steps for this split
+            steps = [
+                ("silence detection", lambda: not os.path.exists(silence_file) or override),
+                ("transcription", lambda: not os.path.exists(transcription_file) or override),
+                ("pyannote processing", lambda: not os.path.exists(pyannote_file + '.csv') or override),
+                ("3D-Speaker processing", lambda: not os.path.exists(threedspeaker_file + '.csv') or override),
+                ("WeSpeaker processing", lambda: not os.path.exists(wespeaker_file + '.csv') or override),
+                ("segmentation", lambda: not os.path.exists(segments_file) or override),
+            ]
+            
+            if segment:
+                steps.append(("generate segments", lambda: not os.path.exists(f"{split_path}_segments") or override))
+            
+            # Count steps that will actually run
+            steps_to_run = [step for step in steps if step[1]()]
+            if progress_manager and steps_to_run:
+                progress_manager.init_step_progress(len(steps_to_run), "Processing Steps")
+            
+            step_index = 0
+
             if not override and os.path.exists(silence_file):
-                print(f"Silence file already exists, skipping silence detection.")
+                log_print(f"Silence file already exists, skipping silence detection.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: Finding silences")
                 # Find silences in the split audio file
-                print(f"Finding silences in {split_path}")
+                log_print(f"Finding silences in {split_path}")
                 # Extract silence detection settings
                 silence_thresh = settings.get('silenceThreshold', -30)
                 min_silence_len = settings.get('minSilenceLength', 100)
                 find_silences_in_file(split_path, silence_file, min_silence_len, silence_thresh)
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if not override and os.path.exists(transcription_file):
-                print(f"Transcription file already exists, skipping transcription.")
+                log_print(f"Transcription file already exists, skipping transcription.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: Transcribing")
                 # Transcribe the split audio file
-                print(f"Transcribing {split_path}")
+                log_print(f"Transcribing {split_path}")
                 transcribe_file(split_path, transcription_file, language=transcription_language)
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if not override and os.path.exists(pyannote_file + '.csv'):
-                print(f"Pyannote file already exists, skipping pyannote processing.")
+                log_print(f"Pyannote file already exists, skipping pyannote processing.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: Pyannote processing")
                 # Run pyannote on the split audio file
-                print(f"Running pyannote on {split_path}")
+                log_print(f"Running pyannote on {split_path}")
                 # Determine max_speakers parameter - if 0, use None (auto-detect)
                 max_speakers_param = max_speakers if max_speakers > 0 else None
                 pyannote(split_path, pyannote_file, max_speakers=max_speakers_param, speaker_db=speaker_db_file)
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if not override and os.path.exists(threedspeaker_file + '.csv'):
-                print(f"3D-Speaker file already exists, skipping 3D-Speaker processing.")
+                log_print(f"3D-Speaker file already exists, skipping 3D-Speaker processing.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: 3D-Speaker processing")
                 # Run 3D-Speaker on the split audio file
-                print(f"Running 3D-Speaker on {split_path}")
+                log_print(f"Running 3D-Speaker on {split_path}")
                 try:
                     from m5_3dspeaker import threed_speaker_diarize
                     # Determine max_speakers parameter - if 0, use None (auto-detect)
                     max_speakers_param = max_speakers if max_speakers > 0 else None
                     threed_speaker_diarize(split_path, output_file=threedspeaker_file, max_speakers=max_speakers_param)
                 except ImportError as e:
-                    print(f"Warning: Could not import 3D-Speaker: {e}")
+                    log_print(f"Warning: Could not import 3D-Speaker: {e}")
                 except Exception as e:
-                    print(f"Error running 3D-Speaker: {e}")
+                    log_print(f"Error running 3D-Speaker: {e}")
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if not override and os.path.exists(wespeaker_file + '.csv'):
-                print(f"WeSpeaker file already exists, skipping WeSpeaker processing.")
+                log_print(f"WeSpeaker file already exists, skipping WeSpeaker processing.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: WeSpeaker processing")
                 # Run WeSpeaker on the split audio file
-                print(f"Running WeSpeaker on {split_path}")
+                log_print(f"Running WeSpeaker on {split_path}")
                 try:
                     from m5_wespeaker import wespeaker_diarize
                     # Determine max_speakers parameter - if 0, use None (auto-detect)
                     max_speakers_param = max_speakers if max_speakers > 0 else None
                     wespeaker_diarize(split_path, output_file=wespeaker_file, max_speakers=max_speakers_param)
                 except ImportError as e:
-                    print(f"Warning: Could not import WeSpeaker: {e}")
+                    log_print(f"Warning: Could not import WeSpeaker: {e}")
                 except Exception as e:
-                    print(f"Error running WeSpeaker: {e}")
+                    log_print(f"Error running WeSpeaker: {e}")
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if not override and os.path.exists(segments_file):
-                print(f"Segments file already exists, skipping segmentation.")
+                log_print(f"Segments file already exists, skipping segmentation.")
             else:
+                if progress_manager:
+                    step_index += 1
+                    progress_manager.update_step(0, f"Step {step_index}: Segmenting audio")
                 # Segment the audio based on transcription
-                print(f"Segmenting {split_path}")
+                log_print(f"Segmenting {split_path}")
                 segment_audio(split_path, transcription_file, segments_file, silence_pad_ms=silence_pad)
+                if progress_manager:
+                    progress_manager.update_step(1)
 
             if segment:
                 # check if segmenting was already done (files exist inside {split_path}_segments)
                 segments_output_path = f"{split_path}_segments"
                 if os.path.exists(segments_output_path):
-                    print(f"Segments already exist, skipping segmentation.")
+                    log_print(f"Segments already exist, skipping segmentation.")
                 else:
+                    if progress_manager:
+                        step_index += 1
+                        progress_manager.update_step(0, f"Step {step_index}: Generating segments")
                     # If segmentation is enabled, process the segments
-                    print(f"Segmenting {split_path} with segments file {segments_file}")
+                    log_print(f"Segmenting {split_path} with segments file {segments_file}")
                     # Extract subsegment settings from project config
                     build_subsegments = settings.get('buildSubsegments', True) if settings else True
                     join_subsegments = settings.get('joinSubsegments', False) if settings else False
                     generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad, build_subsegments=build_subsegments, join_subsegments=join_subsegments)
+                    if progress_manager:
+                        progress_manager.update_step(1)
+            
+            # Update split progress
+            if progress_manager:
+                progress_manager.update_split(1)
 
 def main():
     """
