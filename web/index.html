@@ -46,40 +46,39 @@
                     <option value="">Select Project</option>
                 </select>
                 <div class="icon-buttons">
-                    <button class="icon-btn" onclick="showAddProjectModal()" title="Add Project">
+                    <button class="icon-btn" onclick="showAddProjectModal()" data-tooltip="Add Project">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                         </svg>
                     </button>
-                    <button class="icon-btn" onclick="deleteSelectedProject()" id="deleteProjectBtn" disabled title="Delete Project">
+                    <button class="icon-btn" onclick="deleteSelectedProject()" id="deleteProjectBtn" disabled data-tooltip="Delete Project">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                         </svg>
                     </button>
-                    <button class="icon-btn" onclick="showEditProjectModal()" id="editProjectBtn" disabled title="Edit Project">
+                    <button class="icon-btn" onclick="showEditProjectModal()" id="editProjectBtn" disabled data-tooltip="Edit Project">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
                         </svg>
                     </button>
                 </div>
                 <div class="file-controls">
-                    <input type="file" id="fileUpload">
-                    <button class="icon-btn" onclick="uploadFile()" title="Upload File">
+                    <button class="icon-btn" id="addFilesBtn" onclick="showAddFilesModal()" data-tooltip="Add Files">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z M11,15V12H9V10H11V7H13V10H15V12H13V15H11Z"/>
                         </svg>
                     </button>
-                    <button class="icon-btn run-btn" onclick="runAllFiles()" id="runAllBtn" disabled title="Run All">
+                    <button class="icon-btn run-btn" onclick="runAllFiles()" id="runAllBtn" disabled data-tooltip="Run All Files">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M8,5.14V19.14L19,12.14L8,5.14Z"/>
                         </svg>
                     </button>
-                    <button class="icon-btn clean-btn" onclick="cleanProject()" id="cleanProjectBtn" disabled title="Clean Project">
+                    <button class="icon-btn clean-btn" onclick="cleanProject()" id="cleanProjectBtn" disabled data-tooltip="Clean Project">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M9,3V4H4V6H5V19A2,2 0 0,0 7,21H17A2,2 0 0,0 19,19V6H20V4H15V3H9M7,6H17V19H7V6M9,8V17H11V8H9M13,8V17H15V8H13Z"/>
                         </svg>
                     </button>
-                    <button class="icon-btn export-btn" onclick="exportProject()" id="exportProjectBtn" disabled title="Export Project">
+                    <button class="icon-btn export-btn" onclick="exportProject()" id="exportProjectBtn" disabled data-tooltip="Export Project">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z M15,11H13V16L15.5,13.5L17,15L12,20L7,15L8.5,13.5L11,16V11H9L12,8L15,11Z"/>
                         </svg>
@@ -88,13 +87,143 @@
             </div>
         </div>
 
-        <div class="section">
+        <div class="section" id="dataViewerSection">
             <h2>Data Viewer</h2>
             <!-- Data Viewer Component -->
             <div id="dataViewerComponent"></div>
         </div>
 
         <div id="messages"></div>
+    </div>
+
+    <!-- Run All Options Modal -->
+    <div id="runAllOptionsModal" class="modal">
+        <div class="modal-content run-all-options-modal">
+            <div class="modal-header">
+                <h3>Run All Processing Options</h3>
+                <span class="close" onclick="closeModal('runAllOptionsModal')">&times;</span>
+            </div>
+            <div class="run-options-container">
+                <p class="options-description">Select the processing steps you want to run on all files in this project:</p>
+                
+                <div class="options-grid">
+                    <div class="option-group">
+                        <h4>Basic Processing</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_override">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Override Existing Files</span>
+                                <span class="option-desc">Overwrite existing output files during processing</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_skip">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Skip Incomplete Splits</span>
+                                <span class="option-desc">Skip processing split files if audio and silence files exist but transcription doesn't</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="option-group">
+                        <h4>Advanced Processing</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_segment">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Enable Segmentation</span>
+                                <span class="option-desc">Segment audio files based on speaker detection and timing</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="option-group">
+                        <h4>Quality Control</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_validate">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Run Validation</span>
+                                <span class="option-desc">Validate transcription quality of processed segments</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_clean">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Clean Failed Segments</span>
+                                <span class="option-desc">Remove segments that fail validation (requires validation)</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="option-group">
+                        <h4>Output Generation</h4>
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_copy">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Copy Good Segments</span>
+                                <span class="option-desc">Copy validated segments to project/audio folder with speaker organization</span>
+                            </div>
+                        </label>
+                        
+                        <label class="option-checkbox">
+                            <input type="checkbox" id="runOption_meta">
+                            <span class="checkmark"></span>
+                            <div class="option-info">
+                                <span class="option-title">Generate Metadata</span>
+                                <span class="option-desc">Create metadata.csv file for the processed dataset</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="preset-buttons">
+                    <button onclick="setPreset('none')" class="preset-btn">None</button>
+                    <button onclick="setPreset('basic')" class="preset-btn">Basic</button>
+                    <button onclick="setPreset('full')" class="preset-btn">Full Pipeline</button>
+                </div>
+            </div>
+            <div class="button-group">
+                <button onclick="closeModal('runAllOptionsModal')">Cancel</button>
+                <button onclick="startRunAllProcessing()" class="run-btn">Start Processing</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Files Modal -->
+    <div id="addFilesModal" class="modal">
+        <div class="modal-content add-files-modal">
+            <div class="modal-header">
+                <h3>Add Files to Project</h3>
+                <span class="close" onclick="closeModal('addFilesModal')">&times;</span>
+            </div>
+            <div class="file-upload-area">
+                <div id="dragDropArea" class="drag-drop-area">
+                    <div class="drag-drop-content">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="#007bff">
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z M11,15V12H9V10H11V7H13V10H15V12H13V15H11Z"/>
+                        </svg>
+                        <h4>Drag & Drop Files Here</h4>
+                        <p>Or click to browse files</p>
+                        <p class="supported-formats">Supported: .mp3, .wav, .m4a, .flac</p>
+                    </div>
+                    <input type="file" id="fileUploadInput" multiple accept=".mp3,.wav,.m4a,.flac,audio/*" style="display: none;">
+                </div>
+                <div id="selectedFilesList" class="selected-files-list">
+                    <!-- Selected files will appear here -->
+                </div>
+            </div>
+            <div class="button-group">
+                <button onclick="closeModal('addFilesModal')">Cancel</button>
+                <button onclick="uploadSelectedFiles()" id="uploadFilesBtn" disabled>Upload Files</button>
+            </div>
+        </div>
     </div>
 
     <!-- Add Project Modal -->

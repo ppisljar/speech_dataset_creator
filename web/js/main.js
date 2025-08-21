@@ -10,6 +10,7 @@ class PodcastManager {
         this.loadProjects();
         this.loadProcessingStatus();
         this.setupEventListeners();
+        this.updateProjectButtons(); // Set initial button states
     }
 
     setupEventListeners() {
@@ -157,22 +158,36 @@ class PodcastManager {
     updateProjectButtons() {
         const deleteBtn = document.getElementById('deleteProjectBtn');
         const editBtn = document.getElementById('editProjectBtn');
+        const addFilesBtn = document.getElementById('addFilesBtn');
         const runAllBtn = document.getElementById('runAllBtn');
         const cleanBtn = document.getElementById('cleanProjectBtn');
         const exportBtn = document.getElementById('exportProjectBtn');
+        const dataViewerSection = document.getElementById('dataViewerSection');
         
         if (this.currentProject) {
             deleteBtn.disabled = false;
             editBtn.disabled = false;
+            addFilesBtn.disabled = false;
             runAllBtn.disabled = false;
             cleanBtn.disabled = false;
             exportBtn.disabled = false;
+            
+            // Show data viewer section
+            if (dataViewerSection) {
+                dataViewerSection.style.display = 'block';
+            }
         } else {
             deleteBtn.disabled = true;
             editBtn.disabled = true;
+            addFilesBtn.disabled = true;
             runAllBtn.disabled = true;
             cleanBtn.disabled = true;
             exportBtn.disabled = true;
+            
+            // Hide data viewer section
+            if (dataViewerSection) {
+                dataViewerSection.style.display = 'none';
+            }
         }
     }
 
@@ -465,19 +480,266 @@ async function uploadFile() {
     }
 }
 
+// Add Files Modal Functions
+let selectedFiles = [];
+
+function showAddFilesModal() {
+    const project = podcastManager.currentProject;
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
+        return;
+    }
+    
+    selectedFiles = [];
+    updateSelectedFilesList();
+    document.getElementById('addFilesModal').style.display = 'block';
+    setupDragAndDrop();
+}
+
+function setupDragAndDrop() {
+    const dragDropArea = document.getElementById('dragDropArea');
+    const fileInput = document.getElementById('fileUploadInput');
+    
+    // Click to browse
+    dragDropArea.addEventListener('click', () => {
+        fileInput.click();
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        handleFiles(e.target.files);
+    });
+    
+    // Drag and drop events
+    dragDropArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dragDropArea.classList.add('drag-over');
+    });
+    
+    dragDropArea.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragDropArea.classList.remove('drag-over');
+    });
+    
+    dragDropArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragDropArea.classList.remove('drag-over');
+        handleFiles(e.dataTransfer.files);
+    });
+}
+
+function handleFiles(files) {
+    for (let file of files) {
+        // Check if file is already selected
+        if (!selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
+            // Check file type
+            if (file.type.startsWith('audio/') || 
+                file.name.toLowerCase().match(/\.(mp3|wav|m4a|flac)$/)) {
+                selectedFiles.push(file);
+            } else {
+                podcastManager.showMessage(`Skipped ${file.name}: Not a supported audio file`, true);
+            }
+        }
+    }
+    updateSelectedFilesList();
+}
+
+function updateSelectedFilesList() {
+    const filesList = document.getElementById('selectedFilesList');
+    const uploadBtn = document.getElementById('uploadFilesBtn');
+    
+    if (selectedFiles.length === 0) {
+        filesList.innerHTML = '';
+        uploadBtn.disabled = true;
+        return;
+    }
+    
+    uploadBtn.disabled = false;
+    
+    filesList.innerHTML = selectedFiles.map((file, index) => `
+        <div class="file-item">
+            <div class="file-info">
+                <div class="file-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                    </svg>
+                </div>
+                <div class="file-details">
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-size">${formatFileSize(file.size)}</div>
+                </div>
+            </div>
+            <button class="remove-file-btn" onclick="removeFile(${index})" title="Remove file">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+}
+
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    updateSelectedFilesList();
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function uploadSelectedFiles() {
+    const project = podcastManager.currentProject;
+    
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
+        return;
+    }
+    
+    if (selectedFiles.length === 0) {
+        podcastManager.showMessage('Please select files to upload', true);
+        return;
+    }
+    
+    const uploadBtn = document.getElementById('uploadFilesBtn');
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Uploading...';
+    
+    try {
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            uploadBtn.textContent = `Uploading ${i + 1}/${selectedFiles.length}...`;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch(`/api/projects/${project}/files/raw`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(`Failed to upload ${file.name}: ${result.error}`);
+            }
+        }
+        
+        podcastManager.showMessage(`Successfully uploaded ${selectedFiles.length} file(s)`);
+        closeModal('addFilesModal');
+        
+        // Refresh the file list
+        const globalProjectSelect = document.getElementById('globalProjectSelect');
+        if (globalProjectSelect.value) {
+            globalProjectSelect.dispatchEvent(new Event('change'));
+        }
+        
+    } catch (error) {
+        podcastManager.showMessage('Error uploading files: ' + error.message, true);
+    } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload Files';
+    }
+}
+
 async function runAllFiles() {
     if (!podcastManager.currentProject) {
         podcastManager.showMessage('Please select a project to run', true);
         return;
     }
 
-    if (!confirm(`Run processing on all files in project "${podcastManager.currentProject}"?\n\nThis will process all audio files in the raw directory through the complete pipeline.`)) {
+    // Show the run all options modal
+    showRunAllOptionsModal();
+}
+
+// Run All Options Modal Functions
+function showRunAllOptionsModal() {
+    // Reset all checkboxes to unchecked (disabled by default)
+    const checkboxes = document.querySelectorAll('#runAllOptionsModal input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    
+    document.getElementById('runAllOptionsModal').style.display = 'block';
+}
+
+function setPreset(presetType) {
+    const checkboxes = {
+        override: document.getElementById('runOption_override'),
+        segment: document.getElementById('runOption_segment'),
+        validate: document.getElementById('runOption_validate'),
+        clean: document.getElementById('runOption_clean'),
+        meta: document.getElementById('runOption_meta'),
+        copy: document.getElementById('runOption_copy'),
+        skip: document.getElementById('runOption_skip')
+    };
+    
+    // First, uncheck all
+    Object.values(checkboxes).forEach(checkbox => {
+        if (checkbox) checkbox.checked = false;
+    });
+    
+    switch(presetType) {
+        case 'none':
+            // All already unchecked
+            break;
+        case 'basic':
+            if (checkboxes.override) checkboxes.override.checked = true;
+            if (checkboxes.segment) checkboxes.segment.checked = true;
+            break;
+        case 'full':
+            if (checkboxes.override) checkboxes.override.checked = true;
+            if (checkboxes.segment) checkboxes.segment.checked = true;
+            if (checkboxes.validate) checkboxes.validate.checked = true;
+            if (checkboxes.clean) checkboxes.clean.checked = true;
+            if (checkboxes.copy) checkboxes.copy.checked = true;
+            if (checkboxes.meta) checkboxes.meta.checked = true;
+            break;
+    }
+}
+
+async function startRunAllProcessing() {
+    const project = podcastManager.currentProject;
+    if (!project) {
+        podcastManager.showMessage('Please select a project first', true);
         return;
     }
-
+    
+    // Collect selected options
+    const options = {
+        override: document.getElementById('runOption_override')?.checked || false,
+        segment: document.getElementById('runOption_segment')?.checked || false,
+        validate: document.getElementById('runOption_validate')?.checked || false,
+        clean: document.getElementById('runOption_clean')?.checked || false,
+        meta: document.getElementById('runOption_meta')?.checked || false,
+        copy: document.getElementById('runOption_copy')?.checked || false,
+        skip: document.getElementById('runOption_skip')?.checked || false
+    };
+    
+    // Build the command line arguments
+    const args = [];
+    if (options.override) args.push('--override');
+    if (options.segment) args.push('--segment');
+    if (options.validate) args.push('--validate');
+    if (options.clean) args.push('--clean');
+    if (options.meta) args.push('--meta');
+    if (options.copy) args.push('--copy');
+    if (options.skip) args.push('--skip');
+    
+    // Close the modal
+    closeModal('runAllOptionsModal');
+    
     try {
-        const response = await fetch(`/api/projects/${podcastManager.currentProject}/run`, {
-            method: 'POST'
+        const response = await fetch(`/api/projects/${project}/run`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                options: args 
+            })
         });
 
         const result = await response.json();
@@ -485,7 +747,7 @@ async function runAllFiles() {
             podcastManager.showMessage(result.message);
             if (result.processing_keys && result.processing_keys.length > 0) {
                 // Start monitoring the processing for all files
-                monitorMultipleProcessing(podcastManager.currentProject, result.files);
+                monitorMultipleProcessing(project, result.files);
             }
         } else {
             podcastManager.showMessage(result.error, true);
