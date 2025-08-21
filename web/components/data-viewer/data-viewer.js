@@ -960,14 +960,46 @@ class DataViewer {
                 const x = Math.max(0, startX);
                 const width = Math.min(this.waveformData.canvasWidth, endX) - x;
                 if (width > 0) {
+                    // Check if this segment is being dragged
+                    const isDragging = this.dragState.isDragging && 
+                                     this.dragState.segmentIndex === index &&
+                                     this.dragState.subsegmentIndex === -1;
+                    
+                    // Use brighter colors if being dragged
+                    if (isDragging) {
+                        ctx.strokeStyle = '#FF4444';
+                        ctx.lineWidth = 3;
+                        ctx.fillStyle = 'rgba(255, 68, 68, 0.5)';
+                    } else {
+                        ctx.strokeStyle = 'red';
+                        ctx.lineWidth = 2;
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    }
+                    
                     ctx.fillRect(x, tracks.segments, width, trackHeight);
                     ctx.strokeRect(x, tracks.segments, width, trackHeight);
                     
+                    // Highlight the specific boundary being dragged
+                    if (isDragging) {
+                        ctx.strokeStyle = '#FFFF00'; // Yellow highlight
+                        ctx.lineWidth = 4;
+                        if (this.dragState.dragType === 'segment-start') {
+                            ctx.beginPath();
+                            ctx.moveTo(startX, tracks.segments);
+                            ctx.lineTo(startX, tracks.segments + trackHeight);
+                            ctx.stroke();
+                        } else if (this.dragState.dragType === 'segment-end') {
+                            ctx.beginPath();
+                            ctx.moveTo(endX, tracks.segments);
+                            ctx.lineTo(endX, tracks.segments + trackHeight);
+                            ctx.stroke();
+                        }
+                    }
+                    
                     // Add segment number label if there's enough space
                     if (width > 20) {
-                        ctx.fillStyle = 'red';
+                        ctx.fillStyle = isDragging ? '#FF4444' : 'red';
                         ctx.fillText(`S${index + 1}`, x + 2, tracks.segments + 12);
-                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
                     }
                 }
             }
@@ -1014,14 +1046,46 @@ class DataViewer {
                         const x = Math.max(0, startX);
                         const width = Math.min(this.waveformData.canvasWidth, endX) - x;
                         if (width > 0) {
+                            // Check if this subsegment is being dragged
+                            const isDragging = this.dragState.isDragging && 
+                                             this.dragState.segmentIndex === segmentIndex &&
+                                             this.dragState.subsegmentIndex === subIndex;
+                            
+                            // Use brighter colors if being dragged
+                            if (isDragging) {
+                                ctx.strokeStyle = '#AA44AA';
+                                ctx.lineWidth = 3;
+                                ctx.fillStyle = 'rgba(170, 68, 170, 0.5)';
+                            } else {
+                                ctx.strokeStyle = 'purple';
+                                ctx.lineWidth = 2;
+                                ctx.fillStyle = 'rgba(128, 0, 128, 0.3)';
+                            }
+                            
                             ctx.fillRect(x, tracks.subsegments, width, trackHeight);
                             ctx.strokeRect(x, tracks.subsegments, width, trackHeight);
                             
+                            // Highlight the specific boundary being dragged
+                            if (isDragging) {
+                                ctx.strokeStyle = '#FFFF00'; // Yellow highlight
+                                ctx.lineWidth = 4;
+                                if (this.dragState.dragType === 'subsegment-start') {
+                                    ctx.beginPath();
+                                    ctx.moveTo(startX, tracks.subsegments);
+                                    ctx.lineTo(startX, tracks.subsegments + trackHeight);
+                                    ctx.stroke();
+                                } else if (this.dragState.dragType === 'subsegment-end') {
+                                    ctx.beginPath();
+                                    ctx.moveTo(endX, tracks.subsegments);
+                                    ctx.lineTo(endX, tracks.subsegments + trackHeight);
+                                    ctx.stroke();
+                                }
+                            }
+                            
                             // Add subsegment label if there's enough space
                             if (width > 15) {
-                                ctx.fillStyle = 'purple';
+                                ctx.fillStyle = isDragging ? '#AA44AA' : 'purple';
                                 ctx.fillText(`${segmentIndex + 1}.${subIndex + 1}`, x + 2, tracks.subsegments + 10);
-                                ctx.fillStyle = 'rgba(128, 0, 128, 0.3)';
                             }
                         }
                     }
