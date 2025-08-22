@@ -6,7 +6,7 @@ This script will automatically find all audio files in the specified project's
 raw directory and process them through the complete pipeline.
 
 Usage:
-    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean] [--meta] [--copy] [--skip]
+    python run_all.py <project_name> [--override] [--segment] [--validate] [--clean] [--meta] [--copy] [--skip] [--force-revalidate]
 
 Arguments:
     project_name: Name of the project to process
@@ -17,6 +17,7 @@ Arguments:
     --meta: Generate metadata file for the project after processing segments (optional)
     --copy: Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips (optional)
     --skip: Skip processing split files if split audio and silence files exist but transcription doesn't (optional)
+    --force-revalidate: Force re-validation of all segments, ignoring existing bad_segments.json files (optional)
 
 Examples:
     python run_all.py my_project
@@ -55,6 +56,7 @@ def main():
     parser.add_argument("--meta", action="store_true", help="Generate metadata file for the project after processing segments")
     parser.add_argument("--copy", action="store_true", help="Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips")
     parser.add_argument("--skip", action="store_true", help="Skip processing split files if split audio and silence files exist but transcription doesn't")
+    parser.add_argument("--force-revalidate", action="store_true", help="Force re-validation of all segments, ignoring existing bad_segments.json files")
     
     args = parser.parse_args()
    
@@ -208,7 +210,7 @@ def main():
                 pm.print_log("=" * 60)
                 
                 # Run validation with clean option if specified
-                validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=True, progress_manager=pm)
+                validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=args.force_revalidate, progress_manager=pm)
                 
                 if validation_results:
                     pm.print_log("\nValidation completed successfully!")
