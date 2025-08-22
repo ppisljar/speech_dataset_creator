@@ -199,6 +199,9 @@ class DataViewer {
             this.initializeWaveformViewer();
             this.drawWaveform();
             
+            // Build speaker mapping for cross-system comparison
+            this.buildSpeakerMapping();
+            
             // Display segments table in data viewer
             this.displaySegmentsTable();
             
@@ -1609,9 +1612,151 @@ class DataViewer {
         });
     }
 
+    // Build speaker mapping across different diarization systems
+    buildSpeakerMapping() {
+        if (!this.waveformData.pyannote || !this.waveformData.wespeaker || !this.waveformData['3dspeaker']) {
+            return {};
+        }
+
+        const speakerMapping = {
+            pyannoteToWespeaker: {},
+            pyannoteToThreeDSpeaker: {},
+            wespeakerToPyannote: {},
+            threeDSpeakerToPyannote: {}
+        };
+
+        // For each pyannote segment, find the most overlapping wespeaker and 3dspeaker segments
+        this.waveformData.pyannote.forEach(pyannoteSegment => {
+            const pyannoteStart = pyannoteSegment.start;
+            const pyannoteEnd = pyannoteSegment.end;
+            const pyannoteCenter = (pyannoteStart + pyannoteEnd) / 2;
+
+            // Find best overlapping wespeaker segment
+            let bestWespeaker = null;
+            let bestWespeakerOverlap = 0;
+            this.waveformData.wespeaker.forEach(wespeakerSegment => {
+                const overlap = this.calculateOverlap(pyannoteStart, pyannoteEnd, wespeakerSegment.start, wespeakerSegment.end);
+                if (overlap > bestWespeakerOverlap) {
+                    bestWespeakerOverlap = overlap;
+                    bestWespeaker = wespeakerSegment;
+                }
+            });
+
+            // Find best overlapping 3dspeaker segment
+            let bestThreeDSpeaker = null;
+            let bestThreeDSpeakerOverlap = 0;
+            this.waveformData['3dspeaker'].forEach(threeDSpeakerSegment => {
+                const overlap = this.calculateOverlap(pyannoteStart, pyannoteEnd, threeDSpeakerSegment.start, threeDSpeakerSegment.end);
+                if (overlap > bestThreeDSpeakerOverlap) {
+                    bestThreeDSpeakerOverlap = overlap;
+                    bestThreeDSpeaker = threeDSpeakerSegment;
+                }
+            });
+
+            // Build mapping if good overlap exists (>50% overlap)
+            if (bestWespeaker && bestWespeakerOverlap > 0.5) {
+                speakerMapping.pyannoteToWespeaker[pyannoteSegment.speaker] = bestWespeaker.speaker;
+                speakerMapping.wespeakerToPyannote[bestWespeaker.speaker] = pyannoteSegment.speaker;
+            }
+
+            if (bestThreeDSpeaker && bestThreeDSpeakerOverlap > 0.5) {
+                speakerMapping.pyannoteToThreeDSpeaker[pyannoteSegment.speaker] = bestThreeDSpeaker.speaker;
+                speakerMapping.threeDSpeakerToPyannote[bestThreeDSpeaker.speaker] = pyannoteSegment.speaker;
+            }
+        });
+
+        this.speakerMapping = speakerMapping;
+        return speakerMapping;
+    }
+
+    // Calculate overlap between two time intervals
+    calculateOverlap(start1, end1, start2, end2) {
+        const overlapStart = Math.max(start1, start2);
+        const overlapEnd = Math.min(end1, end2);
+        const overlapDuration = Math.max(0, overlapEnd - overlapStart);
+        const totalDuration = Math.min(end1 - start1, end2 - start2);
+        return totalDuration > 0 ? overlapDuration / totalDuration : 0;
+    }
+
+    // Get speaker information for a segment from all diarization systems
+    getSpeakerInfoForSegment(segment) {
+        const segmentStart = segment.start;
+        const segmentEnd = segment.end;
+        const segmentCenter = (segmentStart + segmentEnd) / 2;
+
+        // Find speakers from each system for this segment
+        const pyannoteSpkr = segment.speaker; // This is the editable/primary speaker
+        
+        // Find wespeaker speaker for this segment
+        let wespeakerSpkr = null;
+        this.waveformData.wespeaker.forEach(wespeakerSegment => {
+            if (segmentCenter >= wespeakerSegment.start && segmentCenter <= wespeakerSegment.end) {
+                wespeakerSpkr = wespeakerSegment.speaker;
+            }
+        });
+
+        // Find 3dspeaker speaker for this segment  
+        let threeDSpeakerSpkr = null;
+        this.waveformData['3dspeaker'].forEach(threeDSpeakerSegment => {
+            if (segmentCenter >= threeDSpeakerSegment.start && segmentCenter <= threeDSpeakerSegment.end) {
+                threeDSpeakerSpkr = threeDSpeakerSegment.speaker;
+            }
+        });
+
+        return {
+            pyannote: pyannoteSpkr,
+            wespeaker: wespeakerSpkr,
+            '3dspeaker': threeDSpeakerSpkr
+        };
+    }
+
+    // Check if there are speaker mismatches for a segment
+    checkSpeakerMismatches(segment) {
+        if (!this.speakerMapping) {
+            this.buildSpeakerMapping();
+        }
+
+        const speakerInfo = this.getSpeakerInfoForSegment(segment);
+        const mismatches = [];
+
+        // Check wespeaker mismatch
+        if (speakerInfo.wespeaker) {
+            const expectedWespeaker = this.speakerMapping.pyannoteToWespeaker[speakerInfo.pyannote];
+            if (expectedWespeaker && expectedWespeaker !== speakerInfo.wespeaker) {
+                mismatches.push({
+                    system: 'wespeaker',
+                    expected: expectedWespeaker,
+                    actual: speakerInfo.wespeaker
+                });
+            }
+        }
+
+        // Check 3dspeaker mismatch
+        if (speakerInfo['3dspeaker']) {
+            const expectedThreeDSpeaker = this.speakerMapping.pyannoteToThreeDSpeaker[speakerInfo.pyannote];
+            if (expectedThreeDSpeaker && expectedThreeDSpeaker !== speakerInfo['3dspeaker']) {
+                mismatches.push({
+                    system: '3dspeaker',
+                    expected: expectedThreeDSpeaker,
+                    actual: speakerInfo['3dspeaker']
+                });
+            }
+        }
+
+        return {
+            speakerInfo,
+            mismatches
+        };
+    }
+
     renderSegmentsTable() {
         const tableBody = document.getElementById('segmentsTableBody');
         if (!tableBody) return;
+        
+        // Build speaker mapping if not already built
+        if (!this.speakerMapping) {
+            this.buildSpeakerMapping();
+        }
         
         let tableHtml = '';
         
@@ -1640,6 +1785,40 @@ class DataViewer {
             const confidenceColor = segment.confidence > 0.6 ? 'green' : 'orange';
             const rowClass = segment.status === 'good' ? 'good' : 'bad';
             
+            // Check for speaker mismatches
+            const speakerAnalysis = this.checkSpeakerMismatches(segment);
+            const hasMismatches = speakerAnalysis.mismatches.length > 0;
+            
+            // Generate speaker cell content
+            let speakerCellContent = `
+                <input type="text" value="${segment.speaker || ''}" 
+                       onchange="dataViewer.updateSegmentField(${index}, 'speaker', this.value)"
+                       style="width: 100%; margin-bottom: 2px;">
+            `;
+            
+            // Add additional speaker info if there are other systems or mismatches
+            if (speakerAnalysis.speakerInfo.wespeaker || speakerAnalysis.speakerInfo['3dspeaker'] || hasMismatches) {
+                speakerCellContent += '<div style="font-size: 10px; color: #666; margin-top: 2px;">';
+                
+                // Show wespeaker info
+                if (speakerAnalysis.speakerInfo.wespeaker) {
+                    const wespeakerMismatch = speakerAnalysis.mismatches.find(m => m.system === 'wespeaker');
+                    const color = wespeakerMismatch ? '#ff6b6b' : '#666';
+                    const title = wespeakerMismatch ? `Mismatch: expected ${wespeakerMismatch.expected}` : '';
+                    speakerCellContent += `<div style="color: ${color};" title="${title}">WS: ${speakerAnalysis.speakerInfo.wespeaker}</div>`;
+                }
+                
+                // Show 3dspeaker info
+                if (speakerAnalysis.speakerInfo['3dspeaker']) {
+                    const threeDSpeakerMismatch = speakerAnalysis.mismatches.find(m => m.system === '3dspeaker');
+                    const color = threeDSpeakerMismatch ? '#ff6b6b' : '#666';
+                    const title = threeDSpeakerMismatch ? `Mismatch: expected ${threeDSpeakerMismatch.expected}` : '';
+                    speakerCellContent += `<div style="color: ${color};" title="${title}">3DS: ${speakerAnalysis.speakerInfo['3dspeaker']}</div>`;
+                }
+                
+                speakerCellContent += '</div>';
+            }
+            
             // Main segment row
             tableHtml += `
                 <tr id="segment-row-${index}" class="segment-row ${rowClass}">
@@ -1650,9 +1829,8 @@ class DataViewer {
                             <option value="bad" ${segment.status === 'bad' ? 'selected' : ''}>Bad</option>
                         </select>
                     </td>
-                    <td>
-                        <input type="text" value="${segment.speaker || ''}" 
-                               onchange="dataViewer.updateSegmentField(${index}, 'speaker', this.value)">
+                    <td style="vertical-align: top; padding: 5px;">
+                        ${speakerCellContent}
                     </td>
                     <td>
                         <textarea onchange="dataViewer.updateSegmentField(${index}, 'text', this.value)">${segment.text || ''}</textarea>
@@ -1706,6 +1884,40 @@ class DataViewer {
                     const subConfidenceColor = subsegment.confidence > 0.6 ? 'green' : 'orange';
                     const subRowClass = subsegment.status === 'good' ? 'good' : 'bad';
                     
+                    // Check for speaker mismatches in subsegments
+                    const subSpeakerAnalysis = this.checkSpeakerMismatches(subsegment);
+                    const subHasMismatches = subSpeakerAnalysis.mismatches.length > 0;
+                    
+                    // Generate subsegment speaker cell content
+                    let subSpeakerCellContent = `
+                        <input type="text" value="${subsegment.speaker || ''}" 
+                               onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'speaker', this.value)"
+                               style="width: 100%; margin-bottom: 2px;">
+                    `;
+                    
+                    // Add additional speaker info for subsegments if there are other systems or mismatches
+                    if (subSpeakerAnalysis.speakerInfo.wespeaker || subSpeakerAnalysis.speakerInfo['3dspeaker'] || subHasMismatches) {
+                        subSpeakerCellContent += '<div style="font-size: 9px; color: #666; margin-top: 2px;">';
+                        
+                        // Show wespeaker info
+                        if (subSpeakerAnalysis.speakerInfo.wespeaker) {
+                            const wespeakerMismatch = subSpeakerAnalysis.mismatches.find(m => m.system === 'wespeaker');
+                            const color = wespeakerMismatch ? '#ff6b6b' : '#666';
+                            const title = wespeakerMismatch ? `Mismatch: expected ${wespeakerMismatch.expected}` : '';
+                            subSpeakerCellContent += `<div style="color: ${color};" title="${title}">WS: ${subSpeakerAnalysis.speakerInfo.wespeaker}</div>`;
+                        }
+                        
+                        // Show 3dspeaker info
+                        if (subSpeakerAnalysis.speakerInfo['3dspeaker']) {
+                            const threeDSpeakerMismatch = subSpeakerAnalysis.mismatches.find(m => m.system === '3dspeaker');
+                            const color = threeDSpeakerMismatch ? '#ff6b6b' : '#666';
+                            const title = threeDSpeakerMismatch ? `Mismatch: expected ${threeDSpeakerMismatch.expected}` : '';
+                            subSpeakerCellContent += `<div style="color: ${color};" title="${title}">3DS: ${subSpeakerAnalysis.speakerInfo['3dspeaker']}</div>`;
+                        }
+                        
+                        subSpeakerCellContent += '</div>';
+                    }
+                    
                     tableHtml += `
                         <tr id="subsegment-row-${index}-${subIndex}" class="subsegment-row ${subRowClass}">
                             <td style="text-align: center; font-size: 10px; color: #666;">${segment.seg_idx || index + 1}.${subIndex + 1}</td>
@@ -1715,9 +1927,8 @@ class DataViewer {
                                     <option value="bad" ${subsegment.status === 'bad' ? 'selected' : ''}>Bad</option>
                                 </select>
                             </td>
-                            <td>
-                                <input type="text" value="${subsegment.speaker || ''}" 
-                                       onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'speaker', this.value)">
+                            <td style="vertical-align: top; padding: 5px;">
+                                ${subSpeakerCellContent}
                             </td>
                             <td>
                                 <textarea onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'text', this.value)">${subsegment.text || ''}</textarea>
