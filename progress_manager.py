@@ -60,52 +60,44 @@ class ProgressManager:
         )
         
         layout["progress"].update(Panel(self.progress, title="Processing Progress"))
-        layout["logs"].update(Panel("", title="Logs", border_style="dim"))
+        layout["logs"].update(Panel("", title="Recent Logs", border_style="dim"))
         
-        self.live = Live(layout, console=self.console, refresh_per_second=10)
+        self.live = Live(layout, console=self.console, refresh_per_second=4)
         self.live.start()
         
-        # Redirect stdout/stderr to capture logs
-        sys.stdout = self.log_buffer
-        sys.stderr = self.log_buffer
+        # Do not redirect stdout/stderr - this was causing the buffering issue
+        # Instead, we'll handle log updates differently in print_log method
         
     def stop(self):
         """Stop the progress display."""
         if not self.is_running:
             return
             
-        # Restore stdout/stderr
-        sys.stdout = self.original_stdout
-        sys.stderr = self.original_stderr
+        # No need to restore stdout/stderr since we're not redirecting them anymore
         
         if self.live:
             self.live.stop()
             
         self.is_running = False
-        
-        # Print any remaining logs
-        logs = self.log_buffer.getvalue()
-        if logs.strip():
-            self.console.print(logs.strip())
             
     def init_overall_progress(self, total_steps: int, description: str = "Overall Progress"):
         """Initialize the overall progress bar."""
         if self.overall_task is not None:
             self.progress.remove_task(self.overall_task)
-        self.overall_task = self.progress.add_task(description, total=total_steps)
+        self.overall_task = self.progress.add_task(description, total=total_steps, completed=0)
         
     def init_file_progress(self, total_files: int, description: str = "Processing Files"):
         """Initialize the file progress bar."""
         if self.file_task is not None:
             self.progress.remove_task(self.file_task)
-        self.file_task = self.progress.add_task(description, total=total_files)
+        self.file_task = self.progress.add_task(description, total=total_files, completed=0)
         
     def init_split_progress(self, total_splits: int, description: str = "Processing Splits"):
         """Initialize the split progress bar."""
         if self.split_task is not None:
             self.progress.remove_task(self.split_task)
         if total_splits > 0:
-            self.split_task = self.progress.add_task(description, total=total_splits)
+            self.split_task = self.progress.add_task(description, total=total_splits, completed=0)
         else:
             self.split_task = None
             
@@ -114,7 +106,7 @@ class ProgressManager:
         if self.step_task is not None:
             self.progress.remove_task(self.step_task)
         if total_steps > 0:
-            self.step_task = self.progress.add_task(description, total=total_steps)
+            self.step_task = self.progress.add_task(description, total=total_steps, completed=0)
         else:
             self.step_task = None
             
@@ -161,11 +153,14 @@ class ProgressManager:
     def print_log(self, message: str):
         """Print a log message that will appear below the progress bars."""
         if self.is_running:
-            # Store the message in buffer to be displayed
+            # Store the message in buffer to be displayed in the logs panel
             self.log_buffer.write(f"{message}\n")
             self.log_buffer.flush()
             
-            # Update the logs panel with just recent messages
+            # Also print to stdout immediately for real-time feedback
+            print(message, flush=True)
+            
+            # Update the logs panel with recent messages
             if self.live and hasattr(self.live, 'renderable'):
                 logs = self.log_buffer.getvalue()
                 # Keep only the last 50 lines to prevent memory issues
@@ -187,7 +182,7 @@ class ProgressManager:
                     layout["logs"].update(Panel(display_text, title="Recent Logs", border_style="dim"))
         else:
             # If not running, print directly
-            self.console.print(message)
+            print(message)
             
     def __enter__(self):
         """Context manager entry."""
