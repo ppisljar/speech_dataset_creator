@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # validate speakers 
 
 # validate text files against audio files ?

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # construct metadata.txt file for entire podcast
 import os
 import json
