@@ -101,7 +101,7 @@ def main():
     audio_extensions = ('.mp3', '.wav', '.m4a', '.flac', '.ogg')
     audio_files = []
     
-    for item in os.listdir(raw_dir):
+    for item in sorted(os.listdir(raw_dir)):
         if item.lower().endswith(audio_extensions):
             audio_files.append(item)
     

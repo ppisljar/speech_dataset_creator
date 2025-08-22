@@ -21,14 +21,15 @@ def generate_metadata(project_dir, output_file='metadata.txt'):
     metadata = []
     i = 0
     for root, dirs, files in os.walk(podcast_dir):
+        dirs.sort()  # Sort directories for consistent ordering
         for dir_name in dirs:
             speakers_folder = os.path.join(root, dir_name)
             # speakers folder contains folder per speaker, walk over all of them
-            for speaker_name in os.listdir(speakers_folder):
+            for speaker_name in sorted(os.listdir(speakers_folder)):
                 speaker_path = os.path.join(speakers_folder, speaker_name)
                 if os.path.isdir(speaker_path):
                     # Get all text files in the speaker folder
-                    text_files = [f for f in os.listdir(speaker_path) if f.endswith('.txt')]
+                    text_files = sorted([f for f in os.listdir(speaker_path) if f.endswith('.txt')])
                     for text_file in text_files:
                         text_file_path = os.path.join(speaker_path, text_file)
                         wav_file_path = os.path.join(speaker_path, text_file.replace('.txt', '.wav'))
@@ -68,6 +69,7 @@ def generate_metadata_for_splits(podcast_dir, output_file='metadata.txt'):
     metadata = []
     i = 0
     for root, dirs, files in os.walk(podcast_dir):
+        dirs.sort()  # Sort directories for consistent ordering
         for dir_name in dirs:
             if dir_name.endswith('_segments'):
                 segments_folder = os.path.join(root, dir_name)
@@ -75,11 +77,11 @@ def generate_metadata_for_splits(podcast_dir, output_file='metadata.txt'):
                 speakers_folder = os.path.join(segments_folder, 'speakers')
                 if os.path.exists(speakers_folder):
                     # speakers folder contains folder per speaker, walk over all of them
-                    for speaker_name in os.listdir(speakers_folder):
+                    for speaker_name in sorted(os.listdir(speakers_folder)):
                         speaker_path = os.path.join(speakers_folder, speaker_name)
                         if os.path.isdir(speaker_path):
                             # Get all text files in the speaker folder
-                            text_files = [f for f in os.listdir(speaker_path) if f.endswith('.txt')]
+                            text_files = sorted([f for f in os.listdir(speaker_path) if f.endswith('.txt')])
                             for text_file in text_files:
                                 text_file_path = os.path.join(speaker_path, text_file)
                                 wav_file_path = os.path.join(speaker_path, text_file.replace('.txt', '.wav'))

@@ -80,8 +80,9 @@ def clean(project_name, raw=False):
     # Remove all files in projects/{project_name}/splits
     if os.path.exists(splits_dir):
         for root, dirs, files in os.walk(splits_dir, topdown=False):
+            dirs.sort()  # Sort directories for consistent ordering
             # Remove all files
-            for file in files:
+            for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
                     os.remove(file_path)
@@ -90,7 +91,7 @@ def clean(project_name, raw=False):
                     print(f"Error removing file {file_path}: {e}")
             
             # Remove all directories (except the splits dir itself)
-            for dir_name in dirs:
+            for dir_name in sorted(dirs):
                 dir_path = os.path.join(root, dir_name)
                 try:
                     os.rmdir(dir_path)
@@ -105,8 +106,9 @@ def clean(project_name, raw=False):
     # Remove all files in projects/{project_name}/raw (only if raw=True)
     if raw and os.path.exists(raw_dir):
         for root, dirs, files in os.walk(raw_dir, topdown=False):
+            dirs.sort()  # Sort directories for consistent ordering
             # Remove all files
-            for file in files:
+            for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
                     os.remove(file_path)
@@ -115,7 +117,7 @@ def clean(project_name, raw=False):
                     print(f"Error removing raw file {file_path}: {e}")
             
             # Remove all directories (except the raw dir itself)
-            for dir_name in dirs:
+            for dir_name in sorted(dirs):
                 dir_path = os.path.join(root, dir_name)
                 try:
                     os.rmdir(dir_path)
@@ -147,7 +149,8 @@ def compress(project_name):
         with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             # Walk through all files in the output directory
             for root, dirs, files in os.walk(output_dir):
-                for file in files:
+                dirs.sort()  # Sort directories for consistent ordering
+                for file in sorted(files):
                     file_path = os.path.join(root, file)
                     # Calculate relative path from output directory
                     arcname = os.path.relpath(file_path, output_dir)

@@ -77,7 +77,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
 
     split_audio_exists = False
     # if any wav inside file_temp_dir exists, we skip the splitting
-    if any(f.endswith('.wav') and not f.endswith('_cleaned_audio.wav') for f in os.listdir(file_temp_dir)) and not override:
+    if any(f.endswith('.wav') and not f.endswith('_cleaned_audio.wav') for f in sorted(os.listdir(file_temp_dir))) and not override:
         log_print(f"Split audio files already exist in {file_temp_dir}, skipping splitting.")
         split_audio_exists = True
     else:
@@ -95,7 +95,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             return False
 
     # for each split audio file, perform transcription and diarization
-    split_count = sum(1 for f in os.listdir(file_temp_dir) if f.endswith(".wav"))
+    split_count = sum(1 for f in sorted(os.listdir(file_temp_dir)) if f.endswith(".wav"))
     
     # If no wav files were created (splitting failed), return False
     if split_count == 0:
@@ -105,12 +105,12 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     # Initialize split progress if progress manager is available
     if progress_manager:
         # Count splits excluding the cleaned audio file if multiple splits exist
-        actual_splits = [f for f in os.listdir(file_temp_dir) 
+        actual_splits = [f for f in sorted(os.listdir(file_temp_dir)) 
                         if f.endswith(".wav") and not (f.endswith("_cleaned_audio.wav") and split_count > 1)]
         progress_manager.init_split_progress(len(actual_splits), "Processing Splits")
     
     split_index = 0
-    for split_file in os.listdir(file_temp_dir):
+    for split_file in sorted(os.listdir(file_temp_dir)):
         # if we have more than single split (more than 1 .wav file in the folder):
         if split_file.endswith(f"_cleaned_audio.wav") and split_count > 1:
             continue
