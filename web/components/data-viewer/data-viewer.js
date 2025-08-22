@@ -1793,27 +1793,27 @@ class DataViewer {
             let speakerCellContent = `
                 <input type="text" value="${segment.speaker || ''}" 
                        onchange="dataViewer.updateSegmentField(${index}, 'speaker', this.value)"
-                       style="width: 100%; margin-bottom: 2px;">
+                       class="speaker-input">
             `;
             
             // Add additional speaker info if there are other systems or mismatches
             if (speakerAnalysis.speakerInfo.wespeaker || speakerAnalysis.speakerInfo['3dspeaker'] || hasMismatches) {
-                speakerCellContent += '<div style="font-size: 10px; color: #666; margin-top: 2px;">';
+                speakerCellContent += '<div class="additional-speakers">';
                 
                 // Show wespeaker info
                 if (speakerAnalysis.speakerInfo.wespeaker) {
                     const wespeakerMismatch = speakerAnalysis.mismatches.find(m => m.system === 'wespeaker');
-                    const color = wespeakerMismatch ? '#ff6b6b' : '#666';
+                    const cssClass = wespeakerMismatch ? 'speaker-mismatch' : 'speaker-match';
                     const title = wespeakerMismatch ? `Mismatch: expected ${wespeakerMismatch.expected}` : '';
-                    speakerCellContent += `<div style="color: ${color};" title="${title}">WS: ${speakerAnalysis.speakerInfo.wespeaker}</div>`;
+                    speakerCellContent += `<div class="${cssClass}" title="${title}">WS: ${speakerAnalysis.speakerInfo.wespeaker}</div>`;
                 }
                 
                 // Show 3dspeaker info
                 if (speakerAnalysis.speakerInfo['3dspeaker']) {
                     const threeDSpeakerMismatch = speakerAnalysis.mismatches.find(m => m.system === '3dspeaker');
-                    const color = threeDSpeakerMismatch ? '#ff6b6b' : '#666';
+                    const cssClass = threeDSpeakerMismatch ? 'speaker-mismatch' : 'speaker-match';
                     const title = threeDSpeakerMismatch ? `Mismatch: expected ${threeDSpeakerMismatch.expected}` : '';
-                    speakerCellContent += `<div style="color: ${color};" title="${title}">3DS: ${speakerAnalysis.speakerInfo['3dspeaker']}</div>`;
+                    speakerCellContent += `<div class="${cssClass}" title="${title}">3DS: ${speakerAnalysis.speakerInfo['3dspeaker']}</div>`;
                 }
                 
                 speakerCellContent += '</div>';
@@ -1829,7 +1829,7 @@ class DataViewer {
                             <option value="bad" ${segment.status === 'bad' ? 'selected' : ''}>Bad</option>
                         </select>
                     </td>
-                    <td style="vertical-align: top; padding: 5px;">
+                    <td class="speaker-cell">
                         ${speakerCellContent}
                     </td>
                     <td>
@@ -1892,27 +1892,27 @@ class DataViewer {
                     let subSpeakerCellContent = `
                         <input type="text" value="${subsegment.speaker || ''}" 
                                onchange="dataViewer.updateSubsegmentField(${index}, ${subIndex}, 'speaker', this.value)"
-                               style="width: 100%; margin-bottom: 2px;">
+                               class="speaker-input">
                     `;
                     
                     // Add additional speaker info for subsegments if there are other systems or mismatches
                     if (subSpeakerAnalysis.speakerInfo.wespeaker || subSpeakerAnalysis.speakerInfo['3dspeaker'] || subHasMismatches) {
-                        subSpeakerCellContent += '<div style="font-size: 9px; color: #666; margin-top: 2px;">';
+                        subSpeakerCellContent += '<div class="additional-speakers">';
                         
                         // Show wespeaker info
                         if (subSpeakerAnalysis.speakerInfo.wespeaker) {
                             const wespeakerMismatch = subSpeakerAnalysis.mismatches.find(m => m.system === 'wespeaker');
-                            const color = wespeakerMismatch ? '#ff6b6b' : '#666';
+                            const cssClass = wespeakerMismatch ? 'speaker-mismatch' : 'speaker-match';
                             const title = wespeakerMismatch ? `Mismatch: expected ${wespeakerMismatch.expected}` : '';
-                            subSpeakerCellContent += `<div style="color: ${color};" title="${title}">WS: ${subSpeakerAnalysis.speakerInfo.wespeaker}</div>`;
+                            subSpeakerCellContent += `<div class="${cssClass}" title="${title}">WS: ${subSpeakerAnalysis.speakerInfo.wespeaker}</div>`;
                         }
                         
                         // Show 3dspeaker info
                         if (subSpeakerAnalysis.speakerInfo['3dspeaker']) {
                             const threeDSpeakerMismatch = subSpeakerAnalysis.mismatches.find(m => m.system === '3dspeaker');
-                            const color = threeDSpeakerMismatch ? '#ff6b6b' : '#666';
+                            const cssClass = threeDSpeakerMismatch ? 'speaker-mismatch' : 'speaker-match';
                             const title = threeDSpeakerMismatch ? `Mismatch: expected ${threeDSpeakerMismatch.expected}` : '';
-                            subSpeakerCellContent += `<div style="color: ${color};" title="${title}">3DS: ${subSpeakerAnalysis.speakerInfo['3dspeaker']}</div>`;
+                            subSpeakerCellContent += `<div class="${cssClass}" title="${title}">3DS: ${subSpeakerAnalysis.speakerInfo['3dspeaker']}</div>`;
                         }
                         
                         subSpeakerCellContent += '</div>';
@@ -1927,7 +1927,7 @@ class DataViewer {
                                     <option value="bad" ${subsegment.status === 'bad' ? 'selected' : ''}>Bad</option>
                                 </select>
                             </td>
-                            <td style="vertical-align: top; padding: 5px;">
+                            <td class="speaker-cell">
                                 ${subSpeakerCellContent}
                             </td>
                             <td>

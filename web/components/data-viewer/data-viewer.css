@@ -321,6 +321,41 @@
     height: 40px;
 }
 
+/* Enhanced Speaker Column Styles */
+.speaker-cell {
+    vertical-align: top;
+    padding: 5px;
+}
+
+.speaker-input {
+    width: 100%;
+    margin-bottom: 2px;
+    border: 1px solid #ccc;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+.additional-speakers {
+    font-size: 10px;
+    color: #666;
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
+.additional-speakers div {
+    margin: 1px 0;
+}
+
+.speaker-mismatch {
+    color: #ff6b6b;
+    font-weight: bold;
+    cursor: help;
+}
+
+.speaker-match {
+    color: #666;
+}
+
 .segment-row {
     font-weight: bold;
 }
