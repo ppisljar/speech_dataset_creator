@@ -80,6 +80,7 @@ def clean(project_name, raw=False):
     # Remove all files in projects/{project_name}/splits
     if os.path.exists(splits_dir):
         for root, dirs, files in os.walk(splits_dir, topdown=False):
+            dirs.sort()  # Sort directories for consistent ordering
             # Remove all files
             for file in sorted(files):
                 file_path = os.path.join(root, file)
@@ -105,6 +106,7 @@ def clean(project_name, raw=False):
     # Remove all files in projects/{project_name}/raw (only if raw=True)
     if raw and os.path.exists(raw_dir):
         for root, dirs, files in os.walk(raw_dir, topdown=False):
+            dirs.sort()  # Sort directories for consistent ordering
             # Remove all files
             for file in sorted(files):
                 file_path = os.path.join(root, file)
@@ -147,6 +149,7 @@ def compress(project_name):
         with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             # Walk through all files in the output directory
             for root, dirs, files in os.walk(output_dir):
+                dirs.sort()  # Sort directories for consistent ordering
                 for file in sorted(files):
                     file_path = os.path.join(root, file)
                     # Calculate relative path from output directory

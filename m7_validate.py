@@ -247,6 +247,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         
         # Walk through splits directory to find all speakers folders
         for root, dirs, files in os.walk(project_splits_dir):
+            dirs.sort()  # Sort directories for consistent ordering
             if 'speakers' in dirs:
                 speakers_dir = os.path.join(root, 'speakers')
                 # Find all speaker ID folders within speakers directory
@@ -771,6 +772,7 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
         
         # Walk through splits directory to find all speakers folders
         for root, dirs, files in os.walk(project_splits_dir):
+            dirs.sort()  # Sort directories for consistent ordering
             if 'speakers' in dirs:
                 speakers_dir = os.path.join(root, 'speakers')
                 # Find all speaker ID folders within speakers directory

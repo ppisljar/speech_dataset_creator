@@ -21,6 +21,7 @@ def generate_metadata(project_dir, output_file='metadata.txt'):
     metadata = []
     i = 0
     for root, dirs, files in os.walk(podcast_dir):
+        dirs.sort()  # Sort directories for consistent ordering
         for dir_name in dirs:
             speakers_folder = os.path.join(root, dir_name)
             # speakers folder contains folder per speaker, walk over all of them
@@ -68,6 +69,7 @@ def generate_metadata_for_splits(podcast_dir, output_file='metadata.txt'):
     metadata = []
     i = 0
     for root, dirs, files in os.walk(podcast_dir):
+        dirs.sort()  # Sort directories for consistent ordering
         for dir_name in dirs:
             if dir_name.endswith('_segments'):
                 segments_folder = os.path.join(root, dir_name)
