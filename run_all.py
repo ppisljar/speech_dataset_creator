@@ -56,6 +56,7 @@ def main():
     parser.add_argument("--meta", action="store_true", help="Generate metadata file for the project after processing segments")
     parser.add_argument("--copy", action="store_true", help="Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips")
     parser.add_argument("--skip", action="store_true", help="Skip processing split files if split audio and silence files exist but transcription doesn't")
+    parser.add_argument("--max-workers", type=int, default=4, help="Maximum number of parallel workers for validation (default: 4)")
     parser.add_argument("--force-revalidate", action="store_true", help="Force re-validation of all segments, ignoring existing bad_segments.json files")
     
     args = parser.parse_args()
@@ -123,10 +124,10 @@ def main():
     print(f"  Generate metadata: {'Yes' if args.meta else 'No'}")
     print(f"  Copy good segments to audio folder: {'Yes' if args.copy else 'No'}")
     if args.validate:
-        print(f"  Run validation: Yes")
+        print(f"  Run validation: Yes (with {args.max_workers} parallel workers)")
         print(f"  Clean failed segments: {'Yes' if args.clean else 'No'}")
     elif args.clean:
-        print(f"  Clean existing bad segments: Yes")
+        print(f"  Clean existing bad segments: Yes (with {args.max_workers} parallel workers)")
     
     # Show project-specific settings
     if settings:
@@ -210,7 +211,7 @@ def main():
                 pm.print_log("=" * 60)
                 
                 # Run validation with clean option if specified
-                validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=args.force_revalidate, progress_manager=pm)
+                validation_results = validate_project(args.project_name, delete_bad=args.clean, score_threshold=85, force_revalidate=args.force_revalidate, progress_manager=pm, max_workers=args.max_workers)
                 
                 if validation_results:
                     pm.print_log("\nValidation completed successfully!")
@@ -224,7 +225,7 @@ def main():
                 pm.print_log("=" * 60)
                 
                 # Use validate_project with delete_bad=True and force_revalidate=False to clean existing bad segments
-                validation_results = validate_project(args.project_name, delete_bad=True, score_threshold=85, force_revalidate=False, progress_manager=pm)
+                validation_results = validate_project(args.project_name, delete_bad=True, score_threshold=85, force_revalidate=False, progress_manager=pm, max_workers=args.max_workers)
                 
                 if validation_results:
                     pm.print_log("\nCleaning completed successfully!")

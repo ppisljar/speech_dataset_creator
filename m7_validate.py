@@ -15,6 +15,8 @@ from pathlib import Path
 import librosa
 import soundfile as sf
 import numpy as np
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from m4_transcribe_file import transcribe_file
 
 def validate_transcription(segment_json, delete_bad=False, score_threshold=85):
@@ -224,7 +226,7 @@ def _calculate_similarity_score(original, new):
     return int(similarity_ratio * 90)
 
 
-def validate_project(project_name, delete_bad=False, score_threshold=85, force_revalidate=False, progress_manager=None):
+def validate_project(project_name, delete_bad=False, score_threshold=85, force_revalidate=False, progress_manager=None, max_workers=4):
     """
     Validate all segments in a project by looking at the generated segments folder.
     
@@ -234,6 +236,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         score_threshold (int): Minimum score threshold.
         force_revalidate (bool): Whether to ignore existing bad_segments.json files and revalidate.
         progress_manager: ProgressManager instance for tracking progress. Defaults to None.
+        max_workers (int): Maximum number of parallel workers for processing files. Defaults to 4.
         
     Returns:
         dict: Dictionary with speaker folders as keys and bad segments as values.
@@ -437,7 +440,8 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
                                                delete_bad=False,
                                                score_threshold=score_threshold,
                                                progress_manager=progress_manager,
-                                               existing_bad_segments_data=existing_bad_segments_data)
+                                               existing_bad_segments_data=existing_bad_segments_data,
+                                               max_workers=max_workers)
         
         # Add speaker path to each bad segment for identification
         for bad_segment in bad_segments:
@@ -582,6 +586,92 @@ def clean_bad_segments_from_project(project_name):
     return total_cleaned
 
 
+def _process_single_file(speaker_folder, wav_filename, score_threshold, progress_manager=None, file_index=None, total_files=None):
+    """
+    Process a single audio file for validation.
+    
+    Args:
+        speaker_folder (str): Path to the speaker folder containing .wav and .txt files.
+        wav_filename (str): Name of the .wav file to process.
+        score_threshold (int): Minimum score threshold.
+        progress_manager: ProgressManager instance for tracking progress.
+        file_index (int): Index of current file for progress reporting.
+        total_files (int): Total number of files for progress reporting.
+        
+    Returns:
+        tuple: (wav_filename, bad_segment_dict or None, success)
+    """
+    def log_print(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
+    
+    try:
+        # Get file paths
+        wav_file = os.path.join(speaker_folder, wav_filename)
+        txt_file = os.path.splitext(wav_file)[0] + '.txt'
+        
+        if not os.path.exists(txt_file):
+            log_print(f"Text file not found for {wav_filename}: {txt_file}")
+            return (wav_filename, None, True)  # Mark as processed even if no txt file
+
+        # Read the existing transcription
+        with open(txt_file, 'r', encoding='utf-8') as f:
+            original_transcription = f.read().strip()
+
+        # Trim silence from audio file (currently disabled)
+        trimmed_audio_file = wav_file  # _trim_silence(wav_file)
+        
+        # Transcribe the trimmed audio
+        try:
+            new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
+            if isinstance(new_transcription, dict):
+                # Try multiple possible keys for the transcription text
+                new_transcription = (new_transcription.get('text') or 
+                                   new_transcription.get('transcript') or 
+                                   new_transcription.get('transcription') or
+                                   str(new_transcription))
+            elif new_transcription is None:
+                new_transcription = ""
+            else:
+                new_transcription = str(new_transcription)
+        except Exception as e:
+            log_print(f"Error transcribing {trimmed_audio_file}: {e}")
+            return (wav_filename, None, True)  # Mark as processed even if transcription failed
+        
+        # Calculate similarity score
+        score = _calculate_similarity_score(original_transcription, new_transcription)
+        
+        # Check if segment is bad
+        if score < score_threshold:
+            bad_segment = {
+                'filename': wav_filename,
+                'score': score,
+                'original_transcription': original_transcription,
+                'new_transcription': new_transcription,
+                'speaker_folder': speaker_folder
+            }
+            
+            log_print(f"Bad segment found: {wav_filename} (score: {score})")
+            log_print(f"  Original: '{original_transcription}'")
+            log_print(f"  New: '{new_transcription}'")
+            
+            return (wav_filename, bad_segment, True)
+        else:
+            log_print(f"Good segment: {wav_filename} (score: {score})")
+            return (wav_filename, None, True)
+            
+        # Clean up trimmed file if it's different from original
+        if trimmed_audio_file != wav_file and os.path.exists(trimmed_audio_file):
+            os.remove(trimmed_audio_file)
+            
+    except Exception as e:
+        log_print(f"Error processing segment {wav_filename}: {e}")
+        return (wav_filename, None, True)  # Mark as processed even if error occurred
+
+
 def _save_validation_progress(bad_segments_data, speaker_folder, bad_segments, processed_files):
     """
     Save validation progress to the bad_segments.json file.
@@ -656,7 +746,7 @@ def _save_validation_progress(bad_segments_data, speaker_folder, bad_segments, p
         traceback.print_exc()
 
 
-def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85, progress_manager=None, existing_bad_segments_data=None):
+def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85, progress_manager=None, existing_bad_segments_data=None, max_workers=4):
     """
     Validate all segments in a speaker folder.
     
@@ -666,6 +756,7 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
         score_threshold (int): Minimum score threshold.
         progress_manager: ProgressManager instance for tracking progress. Defaults to None.
         existing_bad_segments_data (dict): Existing bad segments data to enable resumption.
+        max_workers (int): Maximum number of parallel workers for processing files. Defaults to 4.
         
     Returns:
         list: List of bad segments with their scores.
@@ -721,99 +812,58 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
     if progress_manager and len(files_to_process) > 10:
         progress_manager.init_step_progress(len(files_to_process), f"Validating {len(files_to_process)} segments")
     
-    # Process files and save progress every 50 files
+    # Process files with parallel execution and save progress every 50 files
     processed_count = 0
     checkpoint_interval = 50
     
-    for i, wav_filename in enumerate(files_to_process):
-        if progress_manager and len(files_to_process) > 10:
-            progress_manager.update_step(0, f"Validating segment {i+1}/{len(files_to_process)}: {wav_filename}")
+    # Threading locks for shared data structures
+    bad_segments_lock = threading.Lock()
+    processed_files_lock = threading.Lock()
+    progress_lock = threading.Lock()
+    
+    log_print(f"Processing {len(files_to_process)} files with up to {max_workers} parallel workers")
+    
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_filename = {
+            executor.submit(_process_single_file, speaker_folder, wav_filename, score_threshold, progress_manager, i, len(files_to_process)): wav_filename
+            for i, wav_filename in enumerate(files_to_process)
+        }
         
-        try:
-            # Get file paths
-            wav_file = os.path.join(speaker_folder, wav_filename)
-            txt_file = os.path.splitext(wav_file)[0] + '.txt'
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_filename):
+            wav_filename = future_to_filename[future]
             
-            if not os.path.exists(txt_file):
-                log_print(f"Text file not found for {wav_filename}: {txt_file}")
-                processed_files.add(wav_filename)  # Mark as processed even if no txt file
-                processed_count += 1
-                if progress_manager and len(files_to_process) > 10:
-                    progress_manager.update_step(1)
-                continue
-
-            # Read the existing transcription
-            with open(txt_file, 'r', encoding='utf-8') as f:
-                original_transcription = f.read().strip()
-
-            # Trim silence from audio file
-            trimmed_audio_file = wav_file # _trim_silence(wav_file)
-            
-            # Transcribe the trimmed audio
             try:
-                new_transcription = transcribe_file(trimmed_audio_file, skip_file_output=True)
-                if isinstance(new_transcription, dict):
-                    # Try multiple possible keys for the transcription text
-                    new_transcription = (new_transcription.get('text') or 
-                                       new_transcription.get('transcript') or 
-                                       new_transcription.get('transcription') or
-                                       str(new_transcription))
-                elif new_transcription is None:
-                    new_transcription = ""
-                else:
-                    new_transcription = str(new_transcription)
-            except Exception as e:
-                log_print(f"Error transcribing {trimmed_audio_file}: {e}")
-                processed_files.add(wav_filename)  # Mark as processed even if transcription failed
-                processed_count += 1
+                filename, bad_segment, success = future.result()
+                
+                # Thread-safe updates to shared data structures
+                with processed_files_lock:
+                    processed_files.add(filename)
+                    processed_count += 1
+                
+                if bad_segment is not None:
+                    with bad_segments_lock:
+                        bad_segments.append(bad_segment)
+                
+                # Thread-safe progress reporting
                 if progress_manager and len(files_to_process) > 10:
-                    progress_manager.update_step(1)
-                continue
-            
-            # Calculate similarity score
-            score = _calculate_similarity_score(original_transcription, new_transcription)
-            
-            # Check if segment is bad
-            if score < score_threshold:
-                bad_segment = {
-                    'filename': wav_filename,
-                    'score': score,
-                    'original_transcription': original_transcription,
-                    'new_transcription': new_transcription,
-                    'speaker_folder': speaker_folder
-                }
-                bad_segments.append(bad_segment)
+                    with progress_lock:
+                        progress_manager.update_step(1)
                 
-                log_print(f"Bad segment found: {wav_filename} (score: {score})")
-                log_print(f"  Original: '{original_transcription}'")
-                log_print(f"  New: '{new_transcription}'")
+                # Save progress every checkpoint_interval files (thread-safe)
+                if processed_count % checkpoint_interval == 0 and existing_bad_segments_data is not None:
+                    with bad_segments_lock, processed_files_lock:
+                        log_print(f"Checkpoint: Processed {processed_count} files, saving progress...")
+                        _save_validation_progress(existing_bad_segments_data, speaker_folder, bad_segments, list(processed_files))
                 
-            else:
-                log_print(f"Good segment: {wav_filename} (score: {score})")
-            
-            # Mark file as processed
-            processed_files.add(wav_filename)
-            processed_count += 1
-                
-            # Clean up trimmed file if it's different from original
-            if trimmed_audio_file != wav_file and os.path.exists(trimmed_audio_file):
-                os.remove(trimmed_audio_file)
-                
-        except Exception as e:
-            log_print(f"Error processing segment {wav_filename}: {e}")
-            processed_files.add(wav_filename)  # Mark as processed even if error occurred
-            processed_count += 1
-            if progress_manager and len(files_to_process) > 10:
-                progress_manager.update_step(1)
-            continue
-        
-        if progress_manager and len(files_to_process) > 10:
-            progress_manager.update_step(1)
-        
-        # Save progress every checkpoint_interval files
-        if processed_count % checkpoint_interval == 0 and existing_bad_segments_data is not None:
-            log_print(f"Checkpoint: Processed {processed_count} files, saving progress...")
-            _save_validation_progress(existing_bad_segments_data, speaker_folder, bad_segments, list(processed_files))
+            except Exception as e:
+                log_print(f"Error processing {wav_filename}: {e}")
+                # Still mark as processed even if there was an error
+                with processed_files_lock:
+                    processed_files.add(wav_filename)
+                    processed_count += 1
 
     # Final save if there's remaining progress to save
     if existing_bad_segments_data is not None:
@@ -1025,6 +1075,8 @@ def main():
                         help='Output file for bad segments (only used for single segment file, default: bad_segments.json in same folder)')
     parser.add_argument('--copy', action='store_true',
                         help='Copy all good segments to project/audio folder with organized speaker subfolders and renumbered clips')
+    parser.add_argument('--max-workers', type=int, default=4,
+                        help='Maximum number of parallel workers for processing files (default: 4)')
     parser.add_argument('--force-revalidate', action='store_true',
                         help='Force re-validation of all segments, ignoring existing bad_segments.json files')
     
@@ -1068,7 +1120,8 @@ def main():
         all_results = validate_project(args.input_path,
                                      delete_bad=args.delete_bad,
                                      score_threshold=args.threshold,
-                                     force_revalidate=args.force_revalidate)
+                                     force_revalidate=args.force_revalidate,
+                                     max_workers=args.max_workers)
         
         # Copy good segments if requested
         if args.copy:
