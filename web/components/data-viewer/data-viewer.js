@@ -1613,6 +1613,8 @@ class DataViewer {
     }
 
     // Build speaker mapping across different diarization systems
+    // This function creates a mapping between speakers detected by different systems
+    // (pyannote, wespeaker, 3dspeaker) to enable comparison and mismatch detection
     buildSpeakerMapping() {
         if (!this.waveformData.pyannote || !this.waveformData.wespeaker || !this.waveformData['3dspeaker']) {
             return {};
@@ -1626,6 +1628,7 @@ class DataViewer {
         };
 
         // For each pyannote segment, find the most overlapping wespeaker and 3dspeaker segments
+        // This establishes the "ground truth" mapping where pyannote is the reference system
         this.waveformData.pyannote.forEach(pyannoteSegment => {
             const pyannoteStart = pyannoteSegment.start;
             const pyannoteEnd = pyannoteSegment.end;
@@ -1654,6 +1657,8 @@ class DataViewer {
             });
 
             // Build mapping if good overlap exists (>50% overlap)
+            // This means: if pyannote says "speaker_00" and wespeaker says "spk_0" for the same
+            // time segment, we remember that "speaker_00" == "spk_0" for future comparisons
             if (bestWespeaker && bestWespeakerOverlap > 0.5) {
                 speakerMapping.pyannoteToWespeaker[pyannoteSegment.speaker] = bestWespeaker.speaker;
                 speakerMapping.wespeakerToPyannote[bestWespeaker.speaker] = pyannoteSegment.speaker;
@@ -1711,6 +1716,8 @@ class DataViewer {
     }
 
     // Check if there are speaker mismatches for a segment
+    // This function detects when different diarization systems disagree on speaker identity
+    // by comparing actual speaker assignments against the established mapping
     checkSpeakerMismatches(segment) {
         if (!this.speakerMapping) {
             this.buildSpeakerMapping();
@@ -1720,6 +1727,8 @@ class DataViewer {
         const mismatches = [];
 
         // Check wespeaker mismatch
+        // If we established that pyannote's "speaker_00" should map to wespeaker's "spk_0",
+        // but this segment shows wespeaker detected "spk_1", that's a mismatch
         if (speakerInfo.wespeaker) {
             const expectedWespeaker = this.speakerMapping.pyannoteToWespeaker[speakerInfo.pyannote];
             if (expectedWespeaker && expectedWespeaker !== speakerInfo.wespeaker) {
@@ -1732,6 +1741,7 @@ class DataViewer {
         }
 
         // Check 3dspeaker mismatch
+        // Same logic as above but for 3dspeaker system
         if (speakerInfo['3dspeaker']) {
             const expectedThreeDSpeaker = this.speakerMapping.pyannoteToThreeDSpeaker[speakerInfo.pyannote];
             if (expectedThreeDSpeaker && expectedThreeDSpeaker !== speakerInfo['3dspeaker']) {
