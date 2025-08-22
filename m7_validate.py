@@ -250,7 +250,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
             if 'speakers' in dirs:
                 speakers_dir = os.path.join(root, 'speakers')
                 # Find all speaker ID folders within speakers directory
-                for speaker_id in os.listdir(speakers_dir):
+                for speaker_id in sorted(os.listdir(speakers_dir)):
                     speaker_path = os.path.join(speakers_dir, speaker_id)
                     if os.path.isdir(speaker_path):
                         speaker_folders.append(speaker_path)
@@ -263,7 +263,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
             log_print(f"Looking for segments in legacy structure: {project_segments_dir}")
             
             # Find all speaker folders directly under audio
-            for item in os.listdir(project_segments_dir):
+            for item in sorted(os.listdir(project_segments_dir)):
                 item_path = os.path.join(project_segments_dir, item)
                 if os.path.isdir(item_path):
                     speaker_folders.append(item_path)
@@ -404,7 +404,7 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
     
     # Print summary
     total_bad = sum(len(bad_segments) for bad_segments in all_results.values())
-    total_segments = sum(len([f for f in os.listdir(folder) if f.endswith('.wav')]) for folder in speaker_folders if os.path.exists(folder))
+    total_segments = sum(len([f for f in sorted(os.listdir(folder)) if f.endswith('.wav')]) for folder in speaker_folders if os.path.exists(folder))
     log_print(f"\n=== Project Validation Summary ===")
     log_print(f"Project: {project_name}")
     log_print(f"Speaker folders processed: {len(speaker_folders)}")
@@ -774,7 +774,7 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
             if 'speakers' in dirs:
                 speakers_dir = os.path.join(root, 'speakers')
                 # Find all speaker ID folders within speakers directory
-                for speaker_id in os.listdir(speakers_dir):
+                for speaker_id in sorted(os.listdir(speakers_dir)):
                     speaker_path = os.path.join(speakers_dir, speaker_id)
                     if os.path.isdir(speaker_path):
                         speaker_folders.append(speaker_path)
@@ -819,7 +819,7 @@ def copy_good_segments_to_project_audio(project_name, bad_segments_file=None):
             print(f"  Processing source folder: {speaker_folder}")
             
             # Find all .wav files in this speaker folder
-            wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+            wav_files = [f for f in sorted(os.listdir(speaker_folder)) if f.endswith('.wav')]
             total_wav_files += len(wav_files)
             
             if not wav_files:
