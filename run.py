@@ -244,7 +244,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                     progress_manager.update_step(0, f"Step {step_index}: Segmenting audio")
                 # Segment the audio based on transcription
                 log_print(f"Segmenting {split_path}")
-                segment_audio(split_path, transcription_file, segments_file, silence_pad_ms=silence_pad)
+                segment_audio(split_path, transcription_file, segments_file, silence_pad_ms=silence_pad, progress_manager=progress_manager)
                 if progress_manager:
                     progress_manager.update_step(1)
 
@@ -262,7 +262,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                     # Extract subsegment settings from project config
                     build_subsegments = settings.get('buildSubsegments', True) if settings else True
                     join_subsegments = settings.get('joinSubsegments', False) if settings else False
-                    generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad, build_subsegments=build_subsegments, join_subsegments=join_subsegments)
+                    generate_segments(segments_file, split_path, segments_output_path, silence_pad_ms=silence_pad, build_subsegments=build_subsegments, join_subsegments=join_subsegments, progress_manager=progress_manager)
                     if progress_manager:
                         progress_manager.update_step(1)
             

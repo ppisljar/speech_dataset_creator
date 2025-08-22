@@ -794,7 +794,7 @@ def confidence_prefix(min_conf: float) -> str:
         return "_"
     return ""
 
-def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, min_silence_sec: float = MIN_SILENCE_SEC, min_seg_sec: float = MIN_SEG_SEC, max_seg_sec: float = MAX_SEG_SEC, silence_pad_ms: int = 50) -> None:
+def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, min_silence_sec: float = MIN_SILENCE_SEC, min_seg_sec: float = MIN_SEG_SEC, max_seg_sec: float = MAX_SEG_SEC, silence_pad_ms: int = 50, progress_manager=None) -> None:
     """
     Compute segments based on the provided JSON tokens and global silence detection.
     Stores the segment information in a JSON file.
@@ -807,7 +807,15 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     :param min_seg_sec: Minimum segment length in seconds.
     :param max_seg_sec: Maximum segment length in seconds.
     :param silence_pad_ms: Global silence padding to add to all segments in milliseconds.
+    :param progress_manager: ProgressManager instance for tracking progress. Defaults to None.
     """
+    
+    def log_message(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
     pyannote_csv_path = Path(json_path.replace('_transcription.json', '_pyannote.csv'))
     silences_json_path = Path(json_path.replace('_transcription.json', '_silences.json'))
 
@@ -816,17 +824,20 @@ def segment_audio(audio_path, json_path, outfile, silence_db: int = SILENCE_DB, 
     
     tokens = load_tokens(json_path)
 
-    print("detecting silences ...")
+    log_message("Detecting silences...")
     # load silences from JSON
     if silences_json_path.exists():
         silences = json.loads(silences_json_path.read_text(encoding='utf-8'))
         silences = [(s[0], s[1], s[1] - s[0]) for s in silences]
+        log_message(f"Loaded {len(silences)} silence regions from cache")
     else:
         silences = detect_silences_full(audio_path, silence_db, min_silence_sec)
+        log_message(f"Detected {len(silences)} silence regions")
 
     # Segments (with inline boundary checks/adjustments)
-    print("building segments")
+    log_message("Building segments...")
     segments = build_segments(tokens, silences)
+    log_message(f"Created {len(segments)} segments")
 
     # Store raw segments (before any refinement or processing) for debugging
     raw_segments_data = []
@@ -1010,7 +1021,7 @@ def create_joined_subsegments(sub_segs_data: List[dict]) -> List[dict]:
     
     return joined_subsegments
 
-def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE, silence_pad_ms: int = 50, build_subsegments: bool = True, join_subsegments: bool = False) -> None:
+def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optional[int] = EXPORT_RATE, silence_pad_ms: int = 50, build_subsegments: bool = True, join_subsegments: bool = False, progress_manager=None) -> None:
     """
     Generate audio segments (wav and txt files) from a segments JSON file.
     
@@ -1021,7 +1032,15 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
     :param silence_pad_ms: Global silence padding to add to all segments in milliseconds.
     :param build_subsegments: Whether to generate subsegments. Defaults to True.
     :param join_subsegments: Whether to create additional joined subsegments. Defaults to False.
+    :param progress_manager: ProgressManager instance for tracking progress. Defaults to None.
     """
+    
+    def log_message(message):
+        """Print message using progress manager if available, otherwise regular print."""
+        if progress_manager:
+            progress_manager.print_log(message)
+        else:
+            print(message)
     # Load segments from JSON
     
     segments_json_path = Path(segments_json_path)
@@ -1034,13 +1053,22 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
     
     segments = data['segments']
     
-    print("exporting segments and subsegments")
+    log_message(f"Exporting {len(segments)} segments and subsegments...")
+    
+    # Initialize step progress for segment generation
+    if progress_manager:
+        progress_manager.init_step_progress(len(segments), "Creating Segments")
+    
     counters = {}
     
-    for segdict in segments:
+    for seg_idx_zero_based, segdict in enumerate(segments):
         seg_idx = segdict['seg_idx']
         main_seg_data = segdict['main']
         sub_segs_data = segdict['subs']
+        
+        # Update progress
+        if progress_manager:
+            progress_manager.update_step(0, f"Creating segment {seg_idx_zero_based + 1}/{len(segments)}")
         
         # Create Segment object from data
         main_seg = Segment(
@@ -1108,9 +1136,13 @@ def generate_segments(segments_json_path, audio_path, outdir, export_rate: Optio
                 sub_txt_path = spk_dir / f"{sub_base}.txt"
                 ffmpeg_extract(audio_path, subseg.start_ms, subseg.end_ms, sub_wav_path, silence_pad_ms, silence_pad_ms)
                 sub_txt_path.write_text(subseg.text + "\n", encoding="utf-8")
+        
+        # Update progress after processing this segment
+        if progress_manager:
+            progress_manager.update_step(1)
 
     total = sum(counters.values())
-    print(f"[ok] Generated {total} main segments across {len(counters)} speaker(s) under {outdir/'speakers'}")
+    log_message(f"Generated {total} main segments across {len(counters)} speaker(s) under {outdir/'speakers'}")
 
 # ----------------------------
 # Pyannote utilities
