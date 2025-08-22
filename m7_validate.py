@@ -318,11 +318,41 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
             log_print(f"Error reading existing project bad_segments.json: {e}")
             log_print("Proceeding with revalidation...")
     
+    # Load existing bad segments data for resumption support
+    existing_bad_segments_data = None
+    if not force_revalidate and os.path.exists(project_bad_segments_file):
+        try:
+            with open(project_bad_segments_file, 'r', encoding='utf-8') as f:
+                existing_bad_segments_data = json.load(f)
+            log_print(f"Loaded existing validation data for resumption")
+        except Exception as e:
+            log_print(f"Could not load existing validation data: {e}")
+    
+    # Initialize the bad segments data structure if not loaded
+    if existing_bad_segments_data is None:
+        existing_bad_segments_data = {
+            'project_name': project_name,
+            'validation_timestamp': json.dumps(None),
+            'total_speakers': len(speaker_folders),
+            'total_bad_segments': 0,
+            'progress': {'speakers': {}},
+            'speakers': {}
+        }
+    
     # Delete existing project bad_segments.json if force_revalidate is True
     if force_revalidate and os.path.exists(project_bad_segments_file):
         try:
             os.remove(project_bad_segments_file)
             log_print(f"Deleted existing project bad_segments.json")
+            # Reset the data structure for fresh validation
+            existing_bad_segments_data = {
+                'project_name': project_name,
+                'validation_timestamp': json.dumps(None),
+                'total_speakers': len(speaker_folders),
+                'total_bad_segments': 0,
+                'progress': {'speakers': {}},
+                'speakers': {}
+            }
         except Exception as e:
             log_print(f"Warning: Could not delete existing project bad_segments.json: {e}")
     
@@ -338,11 +368,12 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         
         log_print(f"\n--- Validating speaker: {speaker_name} ---")
         
-        # Run validation without cleaning (cleaning happens separately)
+        # Run validation with resumption support
         bad_segments = validate_speaker_segments(speaker_folder, 
                                                delete_bad=False,
                                                score_threshold=score_threshold,
-                                               progress_manager=progress_manager)
+                                               progress_manager=progress_manager,
+                                               existing_bad_segments_data=existing_bad_segments_data)
         
         # Add speaker path to each bad segment for identification
         for bad_segment in bad_segments:
@@ -358,19 +389,15 @@ def validate_project(project_name, delete_bad=False, score_threshold=85, force_r
         if progress_manager:
             progress_manager.update_step(1)
     
-    # Save all bad segments to a single project-level JSON file
-    project_data = {
-        'project_name': project_name,
-        'validation_timestamp': json.dumps(None),  # Could add actual timestamp if needed
-        'total_speakers': len(speaker_folders),
-        'total_bad_segments': sum(len(bad_segments) for bad_segments in all_results.values()),
-        'speakers': all_results
-    }
+    # Final update to the project data
+    existing_bad_segments_data['speakers'] = all_results
+    existing_bad_segments_data['total_bad_segments'] = sum(len(bad_segments) for bad_segments in all_results.values())
     
+    # Save final results
     try:
         os.makedirs(os.path.dirname(project_bad_segments_file), exist_ok=True)
         with open(project_bad_segments_file, 'w', encoding='utf-8') as f:
-            json.dump(project_data, f, indent=2, ensure_ascii=False)
+            json.dump(existing_bad_segments_data, f, indent=2, ensure_ascii=False)
         log_print(f"\nProject bad segments saved to: {project_bad_segments_file}")
     except Exception as e:
         log_print(f"Error saving project bad segments to {project_bad_segments_file}: {e}")
@@ -483,7 +510,55 @@ def clean_bad_segments_from_project(project_name):
     return total_cleaned
 
 
-def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85, progress_manager=None):
+def _save_validation_progress(bad_segments_data, speaker_folder, bad_segments, processed_files):
+    """
+    Save validation progress to the bad_segments.json file.
+    
+    Args:
+        bad_segments_data (dict): The current bad segments data structure
+        speaker_folder (str): Path to the speaker folder being processed
+        bad_segments (list): List of bad segments found so far
+        processed_files (list): List of files that have been processed
+    """
+    try:
+        # Update the speakers data
+        if 'speakers' not in bad_segments_data:
+            bad_segments_data['speakers'] = {}
+        bad_segments_data['speakers'][speaker_folder] = bad_segments
+        
+        # Update progress tracking
+        if 'progress' not in bad_segments_data:
+            bad_segments_data['progress'] = {'speakers': {}}
+        if 'speakers' not in bad_segments_data['progress']:
+            bad_segments_data['progress']['speakers'] = {}
+        
+        bad_segments_data['progress']['speakers'][speaker_folder] = {
+            'processed_files': processed_files,
+            'total_processed': len(processed_files),
+            'bad_segments_count': len(bad_segments)
+        }
+        
+        # Update total counts
+        bad_segments_data['total_bad_segments'] = sum(len(segs) for segs in bad_segments_data['speakers'].values())
+        
+        # Determine file path - extract from project structure
+        # Assuming speaker_folder is something like "projects/PROJECT_NAME/splits/.../speakers/SPEAKER_ID"
+        project_name = bad_segments_data.get('project_name')
+        if project_name:
+            project_bad_segments_file = os.path.join('projects', project_name, 'bad_segments.json')
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(project_bad_segments_file), exist_ok=True)
+            
+            # Save the file
+            with open(project_bad_segments_file, 'w', encoding='utf-8') as f:
+                json.dump(bad_segments_data, f, indent=2, ensure_ascii=False)
+                
+    except Exception as e:
+        print(f"Warning: Could not save validation progress: {e}")
+
+
+def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=85, progress_manager=None, existing_bad_segments_data=None):
     """
     Validate all segments in a speaker folder.
     
@@ -492,6 +567,7 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
         delete_bad (bool): Whether to delete bad segment files (deprecated - use clean_bad_segments_from_speaker).
         score_threshold (int): Minimum score threshold.
         progress_manager: ProgressManager instance for tracking progress. Defaults to None.
+        existing_bad_segments_data (dict): Existing bad segments data to enable resumption.
         
     Returns:
         list: List of bad segments with their scores.
@@ -507,23 +583,53 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
         log_print(f"Speaker folder not found: {speaker_folder}")
         return []
 
-    # Find all .wav files in the speaker folder
-    wav_files = [f for f in os.listdir(speaker_folder) if f.endswith('.wav')]
+    # Find all .wav files in the speaker folder and sort alphabetically
+    wav_files = sorted([f for f in os.listdir(speaker_folder) if f.endswith('.wav')])
     
     if not wav_files:
         log_print(f"No .wav files found in speaker folder: {speaker_folder}")
         return []
 
+    # Load existing validation results to support resumption
     bad_segments = []
+    processed_files = set()
+    
+    if existing_bad_segments_data:
+        speakers_data = existing_bad_segments_data.get('speakers', {})
+        speaker_data = speakers_data.get(speaker_folder, [])
+        
+        # Extract existing bad segments
+        if isinstance(speaker_data, list):
+            bad_segments = speaker_data.copy()
+        
+        # Extract processed files from progress tracking
+        progress_data = existing_bad_segments_data.get('progress', {})
+        speaker_progress = progress_data.get('speakers', {}).get(speaker_folder, {})
+        processed_files = set(speaker_progress.get('processed_files', []))
+        
+        log_print(f"Resuming validation: {len(processed_files)} files already processed, {len(bad_segments)} bad segments found previously")
+    
+    # Filter out already processed files
+    files_to_process = [f for f in wav_files if f not in processed_files]
+    
+    if not files_to_process:
+        log_print(f"All files already processed in speaker folder: {speaker_folder}")
+        return bad_segments
+    
+    log_print(f"Processing {len(files_to_process)} files out of {len(wav_files)} total files")
     
     # Initialize progress for individual segments within this speaker if we have a progress manager
     # and there are enough segments to warrant sub-progress tracking
-    if progress_manager and len(wav_files) > 10:
-        progress_manager.init_step_progress(len(wav_files), f"Validating {len(wav_files)} segments")
+    if progress_manager and len(files_to_process) > 10:
+        progress_manager.init_step_progress(len(files_to_process), f"Validating {len(files_to_process)} segments")
     
-    for i, wav_filename in enumerate(wav_files):
-        if progress_manager and len(wav_files) > 10:
-            progress_manager.update_step(0, f"Validating segment {i+1}/{len(wav_files)}: {wav_filename}")
+    # Process files and save progress every 100 files
+    processed_count = 0
+    checkpoint_interval = 100
+    
+    for i, wav_filename in enumerate(files_to_process):
+        if progress_manager and len(files_to_process) > 10:
+            progress_manager.update_step(0, f"Validating segment {i+1}/{len(files_to_process)}: {wav_filename}")
         
         try:
             # Get file paths
@@ -532,7 +638,9 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
             
             if not os.path.exists(txt_file):
                 log_print(f"Text file not found for {wav_filename}: {txt_file}")
-                if progress_manager and len(wav_files) > 10:
+                processed_files.add(wav_filename)  # Mark as processed even if no txt file
+                processed_count += 1
+                if progress_manager and len(files_to_process) > 10:
                     progress_manager.update_step(1)
                 continue
 
@@ -550,7 +658,9 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                     new_transcription = new_transcription['text']
             except Exception as e:
                 log_print(f"Error transcribing {trimmed_audio_file}: {e}")
-                if progress_manager and len(wav_files) > 10:
+                processed_files.add(wav_filename)  # Mark as processed even if transcription failed
+                processed_count += 1
+                if progress_manager and len(files_to_process) > 10:
                     progress_manager.update_step(1)
                 continue
             
@@ -574,6 +684,10 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 
             else:
                 log_print(f"Good segment: {wav_filename} (score: {score})")
+            
+            # Mark file as processed
+            processed_files.add(wav_filename)
+            processed_count += 1
                 
             # Clean up trimmed file if it's different from original
             if trimmed_audio_file != wav_file and os.path.exists(trimmed_audio_file):
@@ -581,12 +695,23 @@ def validate_speaker_segments(speaker_folder, delete_bad=False, score_threshold=
                 
         except Exception as e:
             log_print(f"Error processing segment {wav_filename}: {e}")
-            if progress_manager and len(wav_files) > 10:
+            processed_files.add(wav_filename)  # Mark as processed even if error occurred
+            processed_count += 1
+            if progress_manager and len(files_to_process) > 10:
                 progress_manager.update_step(1)
             continue
         
-        if progress_manager and len(wav_files) > 10:
+        if progress_manager and len(files_to_process) > 10:
             progress_manager.update_step(1)
+        
+        # Save progress every checkpoint_interval files
+        if processed_count % checkpoint_interval == 0 and existing_bad_segments_data is not None:
+            log_print(f"Checkpoint: Processed {processed_count} files, saving progress...")
+            _save_validation_progress(existing_bad_segments_data, speaker_folder, bad_segments, list(processed_files))
+
+    # Final save if there's remaining progress to save
+    if existing_bad_segments_data is not None:
+        _save_validation_progress(existing_bad_segments_data, speaker_folder, bad_segments, list(processed_files))
 
     return bad_segments
 
