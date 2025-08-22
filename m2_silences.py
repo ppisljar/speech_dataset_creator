@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # use ffmpeg to find silences in audio file and write to silences.json
 import argparse
 import json

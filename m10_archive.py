@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 def archive_dataset(project_name):
     import os
     import shutil
