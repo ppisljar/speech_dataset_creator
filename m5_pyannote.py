@@ -34,7 +34,7 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         output_file (str): Base path for output files (will create .rttm and .csv)
         min_speakers (int, optional): Minimum number of speakers
         max_speakers (int, optional): Maximum number of speakers
-        speaker_db (str, optional): Path to speaker database file (optional)
+        speaker_db (str, optional): Path to project-level speaker database file (optional)
         speaker_threshold (float, optional): Similarity threshold for speaker matching
     
     Returns:

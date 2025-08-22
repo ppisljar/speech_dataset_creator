@@ -330,7 +330,8 @@ def create_project_routes(projects_dir, processing_status):
                 if clean_transcriptions:
                     file_patterns.extend(['*_transcription.json'])
                 if clean_speakers:
-                    file_patterns.extend(['*_pyannote.csv', '*_pyannote.rttm', '*_3dspeaker.csv', '*_3dspeaker.rttm', '*_wespeaker.csv', '*_wespeaker.rttm', '*_speaker_db.npy'])
+                    file_patterns.extend(['*_pyannote.csv', '*_pyannote.rttm', '*_3dspeaker.csv', '*_3dspeaker.rttm', '*_wespeaker.csv', '*_wespeaker.rttm'])
+                    # Note: speaker_db.npy is now project-level, handled separately below
                 if clean_segments:
                     file_patterns.extend(['*_segments.json'])
                 if clean_raw_segments:
@@ -356,6 +357,16 @@ def create_project_routes(projects_dir, processing_status):
                 
                 if removed_count > 0:
                     cleaned_items.append(f'{removed_count} processing files')
+            
+            # Handle project-level speaker database cleaning
+            if clean_speakers:
+                speaker_db_path = os.path.join(project_path, 'speaker_db.npy')
+                if os.path.exists(speaker_db_path):
+                    try:
+                        os.remove(speaker_db_path)
+                        cleaned_items.append('project speaker database')
+                    except OSError:
+                        pass  # Ignore errors
             
             if not cleaned_items:
                 return jsonify({'message': 'No items were selected for cleaning'}), 200

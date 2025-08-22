@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None, skip=False, progress_manager=None):
+def process_file(file_path, temp_dir="./output", override=False, segment=False, settings=None, skip=False, progress_manager=None, project_name=None):
     """
     Process a single podcast file through the pipeline.
     
@@ -29,6 +29,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
         settings (dict): Project settings dictionary. Defaults to None.
         skip (bool): Skip processing split files if split audio and silence files exist but transcription doesn't. Defaults to False.
         progress_manager: ProgressManager instance for tracking progress. Defaults to None.
+        project_name (str): Project name for speaker database location. Defaults to None.
     
     Returns:
         None
@@ -47,6 +48,16 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
     # Initialize settings if not provided
     if settings is None:
         settings = {}
+    
+    # Determine project-level speaker database path
+    if project_name:
+        # Project mode - use project-level speaker database
+        projects_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'projects')
+        project_dir = os.path.join(projects_dir, project_name)
+        speaker_db_file = os.path.join(project_dir, 'speaker_db.npy')
+    else:
+        # Standalone mode - use output directory level
+        speaker_db_file = os.path.join(temp_dir, 'speaker_db.npy')
     
     # Show silence detection settings being used
     silence_thresh = settings.get('silenceThreshold', -30)
@@ -128,7 +139,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
             threedspeaker_file = f"{split_path}_3dspeaker"
             wespeaker_file = f"{split_path}_wespeaker"
             segments_file = f"{split_path}_segments.json"
-            speaker_db_file = f"{split_path}_speaker_db.npy"
+            # Note: speaker_db_file is now project-level, defined above
 
             # Check if we should skip this split file when --skip is provided
             if skip and split_audio_exists and os.path.exists(silence_file) and not os.path.exists(transcription_file):
@@ -228,7 +239,7 @@ def process_file(file_path, temp_dir="./output", override=False, segment=False, 
                     from m5_wespeaker import wespeaker_diarize
                     # Determine max_speakers parameter - if 0, use None (auto-detect)
                     max_speakers_param = max_speakers if max_speakers > 0 else None
-                    wespeaker_diarize(split_path, output_file=wespeaker_file, max_speakers=max_speakers_param)
+                    wespeaker_diarize(split_path, output_file=wespeaker_file, max_speakers=max_speakers_param, speaker_db=speaker_db_file)
                 except ImportError as e:
                     log_print(f"Warning: Could not import WeSpeaker: {e}")
                 except Exception as e:

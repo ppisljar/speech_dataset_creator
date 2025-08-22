@@ -473,8 +473,8 @@ def create_split_routes(projects_dir, processing_status):
                 f"{base_name}_wespeaker.csv",
                 f"{base_name}_wespeaker.rttm",
                 f"{base_name}_segments.json",
-                f"{base_name}_segments_raw.json",
-                f"{base_name}_speaker_db.npy"
+                f"{base_name}_segments_raw.json"
+                # Note: speaker_db.npy is now project-level, not per-split
             ]
             
             cleanable_files = []
@@ -518,8 +518,8 @@ def create_split_routes(projects_dir, processing_status):
                 f"{base_name}_3dspeaker.rttm", 
                 f"{base_name}_wespeaker.csv",
                 f"{base_name}_wespeaker.rttm",
-                f"{base_name}_segments.json",
-                f"{base_name}_speaker_db.npy"
+                f"{base_name}_segments.json"
+                # Note: speaker_db.npy is now project-level, not per-split
             ]
             
             if filename_to_delete not in valid_patterns:
@@ -652,8 +652,8 @@ def create_split_routes(projects_dir, processing_status):
                                     'segments': '*_segments.json',
                                     'silences': '*_silences.json',
                                     'wespeaker': '*_wespeaker.*',
-                                    '3dspeaker': '*_3dspeaker.*',
-                                    'speaker_db': '*_speaker_db.npy'
+                                    '3dspeaker': '*_3dspeaker.*'
+                                    # Note: speaker_db removed from split-level patterns
                                 }
                                 
                                 if file_type in pattern_map:
@@ -663,6 +663,13 @@ def create_split_routes(projects_dir, processing_status):
                                     for file_path in files_to_delete:
                                         os.remove(file_path)
                                         deleted_items.append(f"splits/{split_folder}/{os.path.basename(file_path)}")
+
+            # Handle project-level speaker database cleaning
+            if file_types.get('speakerdb', False):
+                speaker_db_path = os.path.join(project_path, 'speaker_db.npy')
+                if os.path.exists(speaker_db_path):
+                    os.remove(speaker_db_path)
+                    deleted_items.append('speaker_db.npy')
 
             return jsonify({
                 'message': f'Successfully cleaned {len(deleted_items)} items',

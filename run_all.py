@@ -171,7 +171,7 @@ def main():
                 os.makedirs(output_dir, exist_ok=True)
                 
                 # Process the file
-                success = process_file(raw_file_path, output_dir, args.override, args.segment, settings, args.skip, pm)
+                success = process_file(raw_file_path, output_dir, args.override, args.segment, settings, args.skip, pm, args.project_name)
                 
                 if success is not False:  # process_file returns None on success, False on failure
                     pm.print_log(f"✓ Successfully processed: {filename}")

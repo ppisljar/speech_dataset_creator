@@ -31,6 +31,16 @@ except ImportError:
     print("Warning: 3D-Speaker not available. Please install it with: pip install 3dspeaker")
 
 
+def load_db(path):
+    """Load speaker database from file."""
+    return np.load(path, allow_pickle=True).item() if os.path.exists(path) else {}
+
+
+def save_db(db, path):
+    """Save speaker database to file."""
+    np.save(path, db)
+
+
 def convert_to_wav_if_needed(audio_file_path):
     """Convert audio file to WAV format if it's not already in WAV format."""
     if audio_file_path.lower().endswith('.wav'):
@@ -73,16 +83,17 @@ def find_closest_speaker(embedding, speaker_database, threshold=0.8):
     return closest_speaker
 
 
-def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=None, include_overlap=False, max_speakers=None):
+def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=None, include_overlap=False, max_speakers=None, speaker_db=None):
     """
     Perform speaker diarization using 3D-Speaker.
     
     Args:
         audio_file_path (str): Path to the audio file
         output_file (str): Base path for output files (will create .rttm and .csv)
-        speaker_database (dict): Dictionary mapping speaker names to embeddings (optional)
+        speaker_database (dict): Dictionary mapping speaker names to embeddings (optional, deprecated)
         include_overlap (bool): Whether to include overlapping speech detection
         max_speakers (int): Maximum number of speakers (optional, if None uses auto-detect)
+        speaker_db (str): Path to project-level speaker database file (optional)
         
     Returns:
         dict: Dictionary with segments, rttm_file, and csv_file paths
@@ -92,6 +103,14 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
     
     # Convert audio to WAV if needed
     wav_path = convert_to_wav_if_needed(audio_file_path)
+    
+    # Load speaker database if provided
+    speakers = {}
+    if speaker_db is not None:
+        speakers = load_db(speaker_db)
+    elif speaker_database is not None:
+        # Backward compatibility with old parameter
+        speakers = speaker_database
     
     # Set device for GPU acceleration
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -206,6 +225,12 @@ def threed_speaker_diarize(audio_file_path, output_file=None, speaker_database=N
         else:
             rttm_file = None
             csv_file = None
+        
+        # Save updated speaker database if provided
+        # Note: Current 3D-Speaker implementation doesn't extract embeddings for speaker matching
+        # This is a placeholder for future implementation
+        if speaker_db is not None:
+            save_db(speakers, speaker_db)
         
         # Clean up converted file if we created one
         if wav_path != audio_file_path and os.path.exists(wav_path):
