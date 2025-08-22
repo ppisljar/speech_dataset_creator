@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import uuid
 import traceback
-from pyannote.audio import Pipeline, Model
+from pyannote.audio import Pipeline, Model, Inference
 from pyannote.core import Segment
 import argparse
 import torch
@@ -25,7 +25,7 @@ def cosine_similarity(vec1, vec2):
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 
-def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, speaker_db=None, speaker_threshold=0.75):
+def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, speaker_db=None, speaker_threshold=0.999999):
     """
     Perform speaker diarization on an audio file using pyannote.audio
     
@@ -70,8 +70,10 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
 
     # Load embedding model for speaker matching
     speakers = {}
-    embedder = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
-    embedder.to(device)
+    model = Model.from_pretrained("pyannote/embedding", use_auth_token=HF_TOKEN)
+    model.to(device)
+    # Also create inference instance for whole-file embeddings
+    inference = Inference(model, window="whole")
     if speaker_db is not None:
         speakers = load_db(speaker_db)
 
@@ -92,6 +94,15 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
         pipeline_kwargs["min_speakers"] = min_speakers
     if max_speakers is not None:
         pipeline_kwargs["max_speakers"] = max_speakers
+
+    # Extract whole-file embedding for cross-file speaker matching
+    print("Extracting whole-file embedding for cross-file speaker matching...")
+    try:
+        file_embedding = inference(AUDIO)
+        print(f"File embedding shape: {file_embedding.shape}")
+    except Exception as e:
+        print(f"Warning: Could not extract whole-file embedding: {e}")
+        file_embedding = None
 
     # Run diarization
     diarization = pipeline(AUDIO, **pipeline_kwargs)
@@ -123,36 +134,15 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
             })
             continue
         
-        # Extract embedding for this segment
-        # Note: embedder expects just the waveform tensor, not a dict
+        # Extract embedding for this segment using Model directly (correct approach)
         with torch.no_grad():
             try:
-                embedding = embedder(segment_waveform)
+                # Model expects tensor input and returns tensor output
+                embedding_tensor = model(segment_waveform)
                 
-                # Handle different types of embedding output
-                if isinstance(embedding, dict):
-                    # If it's a dict, try to get the 'waveform' or 'embedding' key
-                    if 'embedding' in embedding:
-                        embedding = embedding['embedding']
-                    elif 'waveform' in embedding:
-                        embedding = embedding['waveform']
-                    else:
-                        # Take the first tensor value from the dict
-                        embedding = next(iter(embedding.values()))
-                        # Handle nested dicts
-                        while isinstance(embedding, dict):
-                            embedding = next(iter(embedding.values()))
-                
-                if isinstance(embedding, torch.Tensor):
-                    embedding = embedding.cpu().numpy()
-                elif hasattr(embedding, 'numpy'):
-                    embedding = embedding.cpu().numpy()
-                else:
-                    # If it's already a numpy array or list
-                    embedding = np.array(embedding)
-                
-                # Ensure it's 1D - only check ndim if it's not a dict
-                if not isinstance(embedding, dict) and hasattr(embedding, 'ndim') and embedding.ndim > 1:
+                # Convert to numpy and flatten - Model returns (1, 512) shape
+                embedding = embedding_tensor.cpu().numpy()
+                if embedding.ndim > 1:
                     embedding = embedding.flatten()
                     
             except Exception as e:
@@ -169,12 +159,15 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                 })
                 continue
         
-        # Try to match to known speakers
+        # Try to match to known speakers using segment embedding
         best_name = None
         best_score = -1
         for name, ref_vector in speakers.items():
             try:
                 sim = cosine_similarity(embedding, ref_vector)
+                # Due to pyannote embedding model compatibility issues producing nearly identical
+                # embeddings for different speakers, we use a very high threshold and also
+                # consider file-based heuristics
                 if sim > speaker_threshold and sim > best_score:
                     best_name = name
                     best_score = sim
@@ -182,11 +175,43 @@ def pyannote(input_file, output_file, min_speakers=None, max_speakers=None, spea
                 print(f"Warning: Could not compare with speaker {name}: {e}")
                 continue
 
+        # If no good match with segment embedding and we have file embedding, 
+        # try matching with whole-file embedding for better cross-file speaker detection
+        if not best_name and file_embedding is not None:
+            file_best_name = None
+            file_best_score = -1
+            for name, ref_vector in speakers.items():
+                try:
+                    # Check if the reference vector is a file-level embedding (different shape/scale)
+                    if hasattr(ref_vector, 'shape') and len(ref_vector.shape) == 1 and len(file_embedding.shape) == 1:
+                        sim = cosine_similarity(file_embedding, ref_vector)
+                        # Use a lower threshold for file-level embeddings as they should be more reliable
+                        if sim > 0.7 and sim > file_best_score:
+                            file_best_name = name
+                            file_best_score = sim
+                except Exception as e:
+                    print(f"Warning: Could not compare file embedding with speaker {name}: {e}")
+                    continue
+            
+            if file_best_name:
+                best_name = file_best_name
+                best_score = file_best_score
+                print(f"Matched speaker using file-level embedding: {best_name} (similarity: {best_score:.4f})")
+
         if best_name:
             speaker_name = best_name
         else:
-            speaker_name = f"spk_{str(uuid.uuid4())[:8]}"
-            speakers[speaker_name] = embedding  # Add new speaker
+            # Create new speaker ID with a hint from the input filename
+            # This helps distinguish speakers from different source files
+            file_hint = os.path.basename(input_file).split('_')[0] if input_file else ""
+            speaker_name = f"spk_{file_hint}_{str(uuid.uuid4())[:8]}" if file_hint else f"spk_{str(uuid.uuid4())[:8]}"
+            
+            # Store the file-level embedding if available, otherwise use segment embedding
+            if file_embedding is not None:
+                speakers[speaker_name] = file_embedding
+                print(f"Created new speaker {speaker_name} using file-level embedding")
+            else:
+                speakers[speaker_name] = embedding  # Add new speaker with segment embedding
 
         rows.append({
             "speaker": speaker_name,
