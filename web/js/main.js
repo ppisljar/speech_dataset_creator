@@ -106,7 +106,7 @@ class PodcastManager {
         if (!this.currentProject) return;
 
         try {
-            const response = await fetch(`/api/projects/${this.currentProject}/files/raw`);
+            const response = await fetch(`/api/projects/${this.currentProject}/files/splits`);
             const files = await response.json();
             
             if (response.ok && dataFileSelect) {
