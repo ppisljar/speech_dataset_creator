@@ -4,50 +4,258 @@ A comprehensive AI-powered pipeline for processing podcast audio files to create
 
 **ALWAYS follow these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
-## Working Effectively
+## Architecture Overview
 
-### Prerequisites and System Setup
-- Install system dependencies first:
-  ```bash
-  # For Ubuntu/Debian systems
-  sudo apt-get update
-  sudo apt-get install -y ffmpeg git wget curl nano build-essential libsndfile1 libsox-fmt-all sox libsox-dev portaudio19-dev python3-dev
-  ```
-- **Required:** Hugging Face token for pyannote.audio models - get from https://huggingface.co/settings/tokens
-- **Recommended:** CUDA-compatible GPU for faster processing
+### 13-Module Processing Pipeline
+The system is built around a sequential pipeline with numbered modules (m0-m13):
+- **m0**: Download podcasts from URLs
+- **m1**: Audio cleaning using MossFormer2 ClearVoice  
+- **m2**: Silence detection and analysis
+- **m3**: Audio splitting based on silences
+- **m4**: Speech-to-text transcription
+- **m5**: Speaker diarization (3 backends: pyannote, wespeaker, 3dspeaker)
+- **m6**: Audio segmentation with speaker assignment
+- **m7**: Validation and quality control
+- **m8**: Metadata generation
+- **m9**: Phonetic alignment for TTS
+- **m10**: Dataset archiving
+- **m11**: Statistics calculation (speaker duration analysis)
+- **m12**: Speaker folder management (joining/merging speakers)
+- **m13**: Speaker re-validation with multi-backend embeddings
 
-### Local Development Setup
-- **ALWAYS** set up the environment in this exact order:
-  ```bash
-  # 1. Clone and navigate to repository
-  git clone <repository_url>
-  cd speech_dataset_creator
-  
-  # 2. Create and activate virtual environment
-  python3 -m venv venv
-  source venv/bin/activate  # On macOS/Linux
-  # venv\Scripts\activate   # On Windows
-  
-  # 3. Upgrade pip first
-  pip install --upgrade pip
-  
-  # 4. Install Python dependencies - takes 5-10 minutes. NEVER CANCEL.
-  pip install -r requirements.txt
-  ```
-  **TIMEOUT WARNING:** Set timeout to 15+ minutes for `pip install`. NEVER CANCEL dependency installation.
+### Project Directory Structure
+```
+projects/{project_name}/
+├── raw/                           # Original uploaded audio files
+├── splits/{filename}/             # Per-file processing outputs
+│   ├── {filename}_cleaned_audio.wav      # Enhanced audio
+│   ├── {filename}_segments.json          # Segment definitions
+│   ├── {filename}_transcription.json     # Speech-to-text output  
+│   ├── {filename}_pyannote.csv           # Speaker diarization
+│   └── {filename}_segments/              # Generated audio segments
+│       └── speakers/{speaker_id}/        # Speaker-separated clips
+├── audio/                         # Final organized speaker clips
+│   └── speaker_{nn}/              # Renumbered speaker folders
+└── bad_segments.json             # Quality control metadata
+```
 
-- **ALWAYS** create environment configuration:
-  ```bash
-  # 5. Copy environment template
-  cp .env.example .env
-  
-  # 6. Edit .env file and set your Hugging Face token
-  # REQUIRED: Set HF_TOKEN=your_huggingface_token_here
-  ```
+### Key Processing Patterns
 
-### Docker Setup (Recommended for Production)
-- **Method 1 - Docker Compose (Recommended):**
-  ```bash
+**File Naming Convention**: `{original_filename}_{processing_stage}.{ext}`
+- Example: `podcast_episode.wav_cleaned_audio.wav`, `podcast_episode.wav_transcription.json`
+
+**Speaker Database**: Project-level `speaker_db.npy` stores speaker embeddings for consistency across processing runs
+
+**Incremental Processing**: Each module checks for existing outputs and can skip/override based on flags
+
+## Critical Development Workflows
+
+### Running the Complete Pipeline
+```bash
+# CLI processing (single file)
+python run.py audio_file.wav
+
+# Web interface (recommended)
+python _server.py  # Access at http://localhost:5000
+
+# Batch processing all files in project
+python run_all.py project_name --validate --clean
+
+# Extended run_all.py options
+python run_all.py project_name --validate --copy  # Copy good segments to final audio/ folder
+python run_all.py project_name --meta             # Generate metadata after processing
+python run_all.py project_name --force-revalidate # Force re-validation ignoring cache
+```
+
+### Module-Specific Development
+```bash
+# Test individual modules directly
+python m1_clean.py input.wav output.wav
+python m4_transcribe_file.py audio.wav output.json
+python m5_pyannote.py audio.wav output_prefix
+
+# New analysis and management modules
+python m11_stats.py project_name                  # Calculate speaker duration statistics
+python m12_join.py project_name                   # List speakers with clip counts
+python m12_join.py project_name --join speaker_00,speaker_01  # Join specific speakers
+python m13_speaker_recheck.py project_name --threshold 0.8    # Re-validate speakers with embeddings
+```
+
+### Quality Control Workflow
+```bash
+# Validate transcription quality (parallel processing)
+python m7_validate.py project_name --max-workers 4 --threshold 85
+
+# Copy good segments to final audio folder
+python m7_validate.py project_name --copy
+
+# Clean project data selectively
+# Use web interface Clean Options for granular control
+```
+
+## Web Interface Architecture
+
+### Flask Server Structure (`_server.py`)
+- **Blueprints**: Modular API endpoints in `server/` directory
+  - `files.py`: File upload/management
+  - `project.py`: Project operations and cleaning
+  - `split.py`: Processing control and monitoring
+  - `status.py`: Real-time processing status
+
+### Processing Status Management
+- Global `processing_status` dict tracks all background operations
+- Format: `{project}_{filename}` keys with status/progress/message
+- Web UI polls `/api/processing/status` for real-time updates
+
+### API Endpoint Patterns
+```python
+# Processing endpoints
+POST /api/projects/{project}/run                    # Batch process all files
+POST /api/projects/{project}/splits/{file}/build    # Process single file
+
+# Data management  
+GET  /api/projects/{project}/splits/{file}/{output} # Fetch processing results
+PUT  /api/projects/{project}/splits/{file}/{output} # Update segment data
+
+# Cleaning operations
+POST /api/projects/{project}/clean                  # Project-level cleaning
+DELETE /api/projects/{project}/splits/{file}/clean  # File-level cleaning
+```
+
+## Speaker Diarization Backends
+
+### Backend Selection Strategy
+The system supports three interchangeable speaker diarization backends:
+
+**pyannote.audio (m5_pyannote.py)** - Default, highest accuracy
+- Requires HF_TOKEN environment variable
+- Best for English and common languages
+- Memory usage: Moderate
+- Similarity threshold: 0.6
+
+**WeSpeaker (m5_wespeaker.py)** - Fast multilingual
+- No authentication required  
+- Good for multilingual content
+- Memory usage: Lower
+- Similarity threshold: 0.7
+
+**3D-Speaker (m5_3dspeaker.py)** - Optimized for Asian languages
+- No authentication required
+- Best for Chinese and Asian languages  
+- Memory usage: Higher
+- Similarity threshold: 0.5
+
+### Backend Integration Pattern
+All backends implement the same `pyannote()` function interface:
+```python
+# Switch backends by changing import in run.py
+from m5_pyannote import pyannote    # Default
+from m5_wespeaker import pyannote   # Alternative  
+from m5_3dspeaker import pyannote   # Alternative
+```
+
+## Environment Setup Requirements
+
+### Prerequisites and System Dependencies
+```bash
+# Ubuntu/Debian system dependencies
+sudo apt-get update
+sudo apt-get install -y ffmpeg git wget curl nano build-essential libsndfile1 libsox-fmt-all sox libsox-dev portaudio19-dev python3-dev
+```
+
+### Python Environment Setup (Critical Order)
+```bash
+# 1. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 2. Upgrade pip first
+pip install --upgrade pip
+
+# 3. Install dependencies (takes 5-10 minutes - NEVER CANCEL)
+pip install -r requirements.txt
+
+# 4. Configure environment
+cp .env.example .env
+# Edit .env and set HF_TOKEN=your_huggingface_token_here
+```
+
+**TIMEOUT WARNING**: Set timeout to 15+ minutes for `pip install`. Model downloads on first use can take 10-60 minutes. NEVER CANCEL these operations.
+
+### Docker Deployment
+```bash
+# Recommended for production
+docker compose up --build  # Takes 15-30 minutes, timeout: 45+ minutes
+
+# Direct Docker
+docker build -t speech-dataset-creator .
+docker run --gpus all -p 5000:5000 \
+  -v ./projects:/workspace/projects \
+  -v ./.env:/workspace/.env:ro \
+  speech-dataset-creator
+```
+
+## Validation and Testing
+
+### Manual Validation Requirements
+Always validate changes through complete user scenarios:
+
+**Web Interface Testing**:
+1. Start server: `python _server.py`
+2. Create project with custom settings
+3. Upload audio file (.wav/.mp3)
+4. Run pipeline and verify output in `projects/` directory
+
+**CLI Testing**:
+1. Use short (30-60 second) test audio file
+2. Run: `python run.py test_audio.mp3`
+3. Verify processing outputs and validation reports
+
+### Expected Processing Times
+- **Initial model downloads**: 10-60 minutes (first run)
+- **Audio processing (small file)**: 2-10 minutes
+- **Full pipeline (1-hour podcast)**: 1-4 hours depending on hardware
+- **Validation (parallel)**: Varies by segment count and workers
+
+### Common Debugging Commands
+```bash
+# Check environment
+python -c "import soundfile; print('soundfile OK')"
+python -c "import flask; print('flask OK')"
+ffmpeg -version
+
+# Verify GPU availability
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+
+# Check HF token
+python -c "import os; print('HF_TOKEN:', 'SET' if os.getenv('HF_TOKEN') else 'NOT SET')"
+```
+
+## Project-Specific Conventions
+
+### Error Handling Pattern
+- Most modules gracefully handle missing dependencies
+- Processing continues with warnings for optional components
+- Use ProgressManager for consistent logging across modules
+
+### Progress Management
+- **ProgressManager** (from `progress_manager.py`): Rich-based split-screen display
+- Provides nested progress bars: overall → file → module → step
+- Scrollable log output with fixed progress display
+- Thread-safe logging for concurrent operations
+- Usage: Pass ProgressManager instance to process_file() and modules
+
+### Configuration Management  
+- Project settings stored in `projects/{project}/settings.json`
+- Environment variables in `.env` file (never commit)
+- Model cache in `./torch_cache`, `./hf_cache`, `./transformers_cache`
+
+### Memory and Performance
+- Use GPU acceleration when available (set `CUDA_VISIBLE_DEVICES`)
+- Parallel validation with `--max-workers` parameter
+- Monitor disk space - temporary files can be large
+
+Remember: This codebase is fully AI-generated. Follow established patterns and use the web interface for complex operations when possible.
   # Ensure .env file exists with HF_TOKEN
   cp .env.example .env
   # Edit .env and set HF_TOKEN=your_token_here
@@ -102,6 +310,9 @@ A comprehensive AI-powered pipeline for processing podcast audio files to create
 - **Metadata generation:** `python m8_meta.py <project_directory> <output>`
 - **Phonetic alignment:** `python m9_align_and_phonetize.py <project_directory>`
 - **Dataset archiving:** `python m10_archive.py <project_directory> <archive_output>`
+- **Speaker statistics:** `python m11_stats.py <project_name>`
+- **Speaker management:** `python m12_join.py <project_name> [--join speaker_list] [--all]`
+- **Speaker re-validation:** `python m13_speaker_recheck.py <project_name> [--threshold 0.8]`
 
 ## Project Structure and Key Locations
 
@@ -399,6 +610,9 @@ docker compose config > /dev/null && echo "Docker config valid"
 - **m8 (metadata):** 30 seconds to 2 minutes
 - **m9 (align):** 5-20 minutes per hour
 - **m10 (archive):** 1-5 minutes depending on size
+- **m11 (stats):** 1-5 minutes depending on clip count
+- **m12 (join):** Instant for listing, 1-10 minutes for joining depending on clip count
+- **m13 (recheck):** 5-30 minutes per hour depending on backend and clip count
 
 ### Memory Requirements
 - **Minimum:** 8GB RAM for basic processing
@@ -413,3 +627,6 @@ docker compose config > /dev/null && echo "Docker config valid"
 - **Modular design:** Each processing step is independent and can be run individually
 - **Error handling:** Most modules gracefully handle missing dependencies or failed operations
 - **Logging:** Comprehensive logging throughout the pipeline for debugging
+- **Thread safety:** Use NUMBER_THREADS environment variable to control parallelization
+- **File locks:** Processing uses file existence checks for incremental processing
+- **Speaker consistency:** speaker_db.npy and speaker_validation.json maintain speaker identity across runs
